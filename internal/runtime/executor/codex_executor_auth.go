@@ -70,6 +70,21 @@ func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
 	return
 }
 
+// codexCredentialUsesOAuth reports whether the selected Codex credential is an
+// OAuth login rather than a configured API key.
+func codexCredentialUsesOAuth(auth *cliproxyauth.Auth) bool {
+	if auth == nil {
+		return false
+	}
+	if auth.AuthKind() == cliproxyauth.AuthKindAPIKey {
+		return false
+	}
+	if auth.Attributes != nil && strings.TrimSpace(auth.Attributes["api_key"]) != "" {
+		return false
+	}
+	return true
+}
+
 func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.CodexKey {
 	if auth == nil || e.cfg == nil {
 		return nil

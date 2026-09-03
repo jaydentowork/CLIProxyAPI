@@ -534,6 +534,15 @@ nonstream-keepalive-interval: 0
 #       - "gemini-2.5-pro"
 
 # Codex API keys
+# codex-base-url: "http://localhost:8080" # optional global upstream base URL override for Codex requests
+#                                         # Applies ONLY to OAuth credentials (OAuth pool) lacking a per-credential
+#                                         # base URL. Configured API keys with no base URL intentionally target OpenAI/Codex
+#                                         # directly and never receive this global override.
+#                                         # Resolution precedence (most specific wins):
+#                                         #   1. Per-credential base-url (codex-api-key base-url)
+#                                         #   2. CODEX_BASE_URL environment variable (OAuth only)
+#                                         #   3. codex-base-url configuration field (OAuth only)
+#                                         #   4. Default: https://chatgpt.com/backend-api/codex
 # codex-api-key:
 #   - api-key: "sk-atSM..."
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
@@ -610,6 +619,15 @@ nonstream-keepalive-interval: 0
 #       - "grok-3-*"             # wildcard matching prefix
 
 # Claude API keys
+# claude-base-url: "http://localhost:8080" # optional global upstream base URL override for Claude requests
+#                                          # Applies ONLY to OAuth credentials (OAuth pool) lacking a per-credential
+#                                          # base URL. Configured API keys with no base URL intentionally target Anthropic
+#                                          # directly and never receive this global override.
+#                                          # Resolution precedence (most specific wins):
+#                                          #   1. Per-credential base-url (claude-api-key base-url)
+#                                          #   2. CLAUDE_BASE_URL environment variable (OAuth only)
+#                                          #   3. claude-base-url configuration field (OAuth only)
+#                                          #   4. Default: https://api.anthropic.com
 # claude-api-key:
 #   - api-key: "sk-atSM..." # use the official claude API key, no need to set the base url
 #   - api-key: "sk-atSM..."

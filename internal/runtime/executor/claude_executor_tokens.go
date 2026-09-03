@@ -21,9 +21,7 @@ import (
 
 func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
 	apiKey, baseURL := claudeCreds(auth)
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
-	}
+	baseURL = e.resolveClaudeBaseURL(auth, apiKey, baseURL)
 	// Only Anthropic's first-party origin has the measured native count_tokens
 	// contract. Every custom/third-party base URL keeps local estimation,
 	// regardless of whether the credential is OAuth or an API key.
@@ -122,9 +120,7 @@ func (e *ClaudeExecutor) countTokensUpstream(ctx context.Context, auth *cliproxy
 	upstreamModel := e.upstreamModel(baseModel)
 
 	apiKey, baseURL := claudeCreds(auth)
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
-	}
+	baseURL = e.resolveClaudeBaseURL(auth, apiKey, baseURL)
 	url := fmt.Sprintf("%s/v1/messages/count_tokens?beta=true", baseURL)
 	fp := resolveClaudeFingerprintPolicy(e.cfg, auth, apiKey)
 
@@ -191,7 +187,7 @@ func (e *ClaudeExecutor) countTokensUpstream(ctx context.Context, auth *cliproxy
 	// Two different reasons converge on the same deletions, and they must stay
 	// separable.
 	//
-	// api.anthropic.com rejects these fields on count_tokens outright ("metadata:
+	// Anthropic rejects these fields on count_tokens outright ("metadata:
 	// Extra inputs are not permitted"), so they have to go for every credential
 	// that lands there, opted in or not. That is upstream compatibility, not
 	// fingerprinting.

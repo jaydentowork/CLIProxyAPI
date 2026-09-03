@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
@@ -302,4 +303,30 @@ func (e *ClaudeExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Aut
 	}
 	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	return httpClient.Do(httpReq)
+}
+
+const defaultClaudeBaseURL = "https://api.anthropic.com"
+
+// resolveClaudeBaseURL picks the upstream Claude endpoint. A credential's own
+// base URL (claude-api-key base-url) always wins. Only OAuth credentials fall
+// through to the CLAUDE_BASE_URL env var and then the claude-base-url config
+// field: OAuth pools carry no per-credential knob, while an API key that set no
+// base-url intentionally targets Anthropic and must never be redirected by a
+// global proxy setting. Empty everywhere keeps Anthropic's origin.
+func (e *ClaudeExecutor) resolveClaudeBaseURL(auth *cliproxyauth.Auth, apiKey, credentialBaseURL string) string {
+	if cred := strings.TrimRight(strings.TrimSpace(credentialBaseURL), "/"); cred != "" {
+		return cred
+	}
+	if !claudeCredentialUsesOAuth(auth, apiKey) {
+		return defaultClaudeBaseURL
+	}
+	if env := strings.TrimRight(strings.TrimSpace(os.Getenv("CLAUDE_BASE_URL")), "/"); env != "" {
+		return env
+	}
+	if e != nil && e.cfg != nil {
+		if cfgURL := strings.TrimRight(strings.TrimSpace(e.cfg.ClaudeBaseURL), "/"); cfgURL != "" {
+			return cfgURL
+		}
+	}
+	return defaultClaudeBaseURL
 }

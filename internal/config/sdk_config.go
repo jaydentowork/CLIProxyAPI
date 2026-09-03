@@ -51,6 +51,22 @@ type SDKConfig struct {
 	// ClaudeCode configures Claude Code compatibility behavior.
 	ClaudeCode ClaudeCodeConfig `yaml:"claude-code" json:"claude-code"`
 
+	// ClaudeBaseURL sets an optional global upstream base URL for Claude requests.
+	// It applies ONLY to OAuth credentials (which carry no per-credential base URL, notably
+	// in an OAuth pool). API-key credentials with no base URL intentionally target Anthropic
+	// and never receive this override. A per-credential base URL (claude-api-key base-url)
+	// always takes precedence. When empty or unset, the default Anthropic endpoint
+	// (https://api.anthropic.com) is preserved.
+	ClaudeBaseURL string `yaml:"claude-base-url,omitempty" json:"claude-base-url,omitempty"`
+
+	// CodexBaseURL sets an optional global upstream base URL for Codex requests.
+	// It applies ONLY to OAuth credentials (which carry no per-credential base URL, notably
+	// in an OAuth pool). API-key credentials with no base URL intentionally target the default
+	// endpoint and never receive this override. A per-credential base URL (codex-api-key base-url)
+	// always takes precedence. When empty or unset, the default Codex endpoint
+	// (https://chatgpt.com/backend-api/codex) is preserved.
+	CodexBaseURL string `yaml:"codex-base-url,omitempty" json:"codex-base-url,omitempty"`
+
 	// UsageCacheStats configures the retained per-session prompt-cache statistics store.
 	UsageCacheStats UsageCacheStatsConfig `yaml:"usage-cache-stats" json:"usage-cache-stats"`
 

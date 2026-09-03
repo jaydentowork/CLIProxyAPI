@@ -92,9 +92,7 @@ func (e *CodexExecutor) executeOpenAIImage(ctx context.Context, auth *cliproxyau
 	}
 
 	apiKey, baseURL := codexCreds(auth)
-	if baseURL == "" {
-		baseURL = "https://chatgpt.com/backend-api/codex"
-	}
+	baseURL = e.resolveCodexBaseURL(auth, baseURL)
 
 	mainModel := e.resolveGPTImage2BaseModel()
 	reporter := helps.NewExecutorUsageReporter(ctx, e, mainModel, auth)
@@ -189,9 +187,7 @@ func (e *CodexExecutor) executeOpenAIImageStream(ctx context.Context, auth *clip
 	}
 
 	apiKey, baseURL := codexCreds(auth)
-	if baseURL == "" {
-		baseURL = "https://chatgpt.com/backend-api/codex"
-	}
+	baseURL = e.resolveCodexBaseURL(auth, baseURL)
 
 	mainModel := e.resolveGPTImage2BaseModel()
 	reporter := helps.NewExecutorUsageReporter(ctx, e, mainModel, auth)
@@ -322,9 +318,7 @@ func (e *CodexExecutor) executeDirectOpenAIImage(ctx context.Context, auth *clip
 	}
 
 	apiKey, baseURL := codexCreds(auth)
-	if baseURL == "" {
-		baseURL = "https://chatgpt.com/backend-api/codex"
-	}
+	baseURL = e.resolveCodexBaseURL(auth, baseURL)
 
 	reporter := helps.NewExecutorUsageReporter(ctx, e, model, auth)
 	defer reporter.TrackFailure(ctx, &err)
@@ -383,9 +377,7 @@ func (e *CodexExecutor) executeDirectOpenAIImageStream(ctx context.Context, auth
 	}
 
 	apiKey, baseURL := codexCreds(auth)
-	if baseURL == "" {
-		baseURL = "https://chatgpt.com/backend-api/codex"
-	}
+	baseURL = e.resolveCodexBaseURL(auth, baseURL)
 
 	reporter := helps.NewExecutorUsageReporter(ctx, e, model, auth)
 	defer reporter.TrackFailure(ctx, &err)
