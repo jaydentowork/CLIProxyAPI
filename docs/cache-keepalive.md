@@ -31,7 +31,8 @@ read and avoids one write.
 
 On Fable 5.1 a cache read is $0.25/MTok against $10/MTok base input, so holding a
 5m entry open costs about a third of what letting it expire and re-writing costs.
-That is why `probe-5m` defaults to `auto` and probes exactly those models.
+By default, `probe-5m` is `never` so only 1h sessions are probed. Setting
+`probe-5m: auto` opts into probing exactly those cheap-cache-read models.
 Anthropic's prompt-caching guidance makes the same point from the other side: on
 these models prefer a keepalive on the 5m tier over paying the 1h TTL premium,
 unless pauses regularly approach an hour.
@@ -42,8 +43,9 @@ substring, so `us.anthropic.claude-fable-5-1-v1:0` and `claude-fable-5-1[1m]`
 both resolve. `probe-5m-models` replaces it without a rebuild when a new model
 lands first.
 
-`probe-5m: always` probes every confirmed session regardless of model, and
-`probe-5m: never` restores the original 1h-only rule.
+`probe-5m: never` (default) keeps the 1h-only rule and never probes 5m sessions.
+`probe-5m: auto` opts in for models whose cache reads beat expiry, and
+`probe-5m: always` opts in for every confirmed session regardless of model.
 
 ## Policy
 
@@ -166,7 +168,7 @@ claude-code:
     enabled: false                 # opt-in
     before-expiry: 5m              # 1h pool: fire at ttl - before-expiry
     before-expiry-5m: 45s          # 5m pool: same, measured from the request start
-    probe-5m: auto                 # auto | always | never
+    probe-5m: never                # never (default) | auto | always
     # probe-5m-models:             # replaces the built-in cheap-cache-read list
     #   - claude-fable-5-1
     #   - claude-mythos-5-1
@@ -195,7 +197,7 @@ Every line is prefixed `cache-keepalive:`, so `grep cache-keepalive main.log`
 tells the whole story with no other source.
 
 ```
-cache-keepalive: enabled | before-expiry=5m0s before-expiry-5m=45s probe-5m=auto only-when-agents-active=true liveness=claude-code-tasks agent-idle-window=10m0s max-probes=6 max-probes-5m=30 max-tokens=1
+cache-keepalive: enabled | before-expiry=5m0s before-expiry-5m=45s probe-5m=never only-when-agents-active=true liveness=claude-code-tasks agent-idle-window=10m0s max-probes=6 max-probes-5m=30 max-tokens=1
 cache-keepalive: scheduled | session=4463ede6... auth=<id> model=<model> ttl=1h0m0s ttl_tier=1h probe_5m=n/a fires_in=55m0s next_probe_at=2026-09-02T20:51:57-07:00
 cache-keepalive: scheduled | session=8f21ac03... auth=<id> model=claude-fable-5-1 ttl=5m0s ttl_tier=5m probe_5m=model-auto fires_in=4m15s next_probe_at=2026-09-02T20:36:12-07:00
 cache-keepalive: probe | session=4463ede6... auth=<id> model=<model> ttl_tier=1h probe_5m=n/a status=hit cache_read_input_tokens=161937 cache_creation_input_tokens=0 duration=612ms probes_sent=1 consecutive_probes=1 rescheduled=true next_probe_at=2026-09-02T21:46:57-07:00

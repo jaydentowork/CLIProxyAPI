@@ -64,8 +64,8 @@ type ClaudeCodeCacheKeepaliveConfig struct {
 	// BeforeExpiry5m is the same lead time for the 5m pool. Default 45s.
 	BeforeExpiry5m time.Duration `yaml:"before-expiry-5m" json:"before-expiry-5m"`
 
-	// Probe5m selects when a session on the 5m pool is probed: "auto"
-	// (default), "always" or "never". "auto" probes only models whose cache
+	// Probe5m selects when a session on the 5m pool is probed: "never"
+	// (default), "auto" or "always". "auto" probes only models whose cache
 	// reads are priced low enough for probing to beat expiry.
 	Probe5m string `yaml:"probe-5m" json:"probe-5m"`
 
@@ -189,11 +189,11 @@ func (c ClaudeCodeCacheKeepaliveConfig) WithDefaults() ClaudeCodeCacheKeepaliveC
 		c.BeforeExpiry5m = defaultClaudeCodeKeepaliveBeforeExpiry5m
 	}
 	if !c.probe5mPresent && strings.TrimSpace(c.Probe5m) == "" {
-		c.Probe5m = ClaudeCodeKeepaliveProbe5mAuto
+		c.Probe5m = ClaudeCodeKeepaliveProbe5mNever
 	}
 	c.Probe5m = strings.ToLower(strings.TrimSpace(c.Probe5m))
 	if c.Probe5m == "" {
-		c.Probe5m = ClaudeCodeKeepaliveProbe5mAuto
+		c.Probe5m = ClaudeCodeKeepaliveProbe5mNever
 	}
 	if !c.onlyWhenAgentsActivePresent {
 		c.OnlyWhenAgentsActive = true

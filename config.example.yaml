@@ -221,16 +221,16 @@ claude-code:
     before-expiry-5m: 45s
 
     # When to probe a session on the 5m pool.
-    #   auto    probe only when the request model's cache reads are cheap enough
-    #           for the arithmetic to work out (default). A probe buys one read and
+    #   never   probe only 1h sessions (default). 5m sessions are never probed.
+    #   auto    opt-in: probe only when the request model's cache reads are cheap enough
+    #           for the arithmetic to work out. A probe buys one read and
     #           avoids one write: at the usual 0.1x-base read against a 1.25x-base
     #           write, the ~12 reads an hour a 5m window needs are a wash, but
     #           claude-fable-5-1 and claude-mythos-5-1 read at 0.025x base
     #           ($0.25/MTok against $10/MTok input), so the same 12 reads cost about
     #           a third of the write they avoid.
-    #   always  probe every confirmed session regardless of model.
-    #   never   probe only 1h sessions, the original behaviour.
-    probe-5m: auto
+    #   always  opt-in: probe every confirmed session regardless of model.
+    probe-5m: never
 
     # Replaces the built-in cheap-cache-read list "auto" matches the request model
     # against. Entries match case-insensitively as substrings, so a provider-prefixed

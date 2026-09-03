@@ -139,7 +139,7 @@ func testScheduler(t *testing.T, clock *fakeClock, prober Prober, liveness Liven
 		Enabled:              true,
 		BeforeExpiry:         5 * time.Minute,
 		BeforeExpiry5m:       45 * time.Second,
-		Probe5m:              Probe5mAuto,
+		Probe5m:              Probe5mNever,
 		OnlyWhenAgentsActive: true,
 		MaxProbes:            6,
 		MaxProbes5m:          30,
@@ -886,7 +886,8 @@ func TestProbe5mDecision(t *testing.T) {
 func TestObserveSchedulesA5mSessionAtTTLMinusBeforeExpiry5m(t *testing.T) {
 	clock := &fakeClock{}
 	prober := &recordingProber{}
-	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound}, nil)
+	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound},
+		func(cfg *Config) { cfg.Probe5m = Probe5mAuto })
 
 	observeFiveMinutes(scheduler, "sess-5m", "claude-fable-5-1")
 
@@ -899,10 +900,26 @@ func TestObserveSchedulesA5mSessionAtTTLMinusBeforeExpiry5m(t *testing.T) {
 	}
 }
 
+func TestObserveDefaultConfigSkips5mSession(t *testing.T) {
+	clock := &fakeClock{}
+	prober := &recordingProber{}
+	// Default config has Probe5m = Probe5mNever.
+	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound}, nil)
+
+	observeFiveMinutes(scheduler, "sess-5m", "claude-fable-5-1")
+	if clock.count() != 0 {
+		t.Fatalf("scheduled %d timers under default config (probe-5m=never), want 0", clock.count())
+	}
+	if got := scheduler.Snapshot().Counters.SkippedByReason[Probe5mDecisionSkippedNever]; got != 1 {
+		t.Fatalf("skipped_by_reason[%s] = %d, want 1", Probe5mDecisionSkippedNever, got)
+	}
+}
+
 func TestObserveAutoSkipsA5mSessionOnAnExpensiveCacheReadModel(t *testing.T) {
 	clock := &fakeClock{}
 	prober := &recordingProber{}
-	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound}, nil)
+	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound},
+		func(cfg *Config) { cfg.Probe5m = Probe5mAuto })
 
 	observeFiveMinutes(scheduler, "sess-5m", "claude-opus-5")
 
@@ -917,7 +934,8 @@ func TestObserveAutoSkipsA5mSessionOnAnExpensiveCacheReadModel(t *testing.T) {
 func TestObserveAutoStillSchedulesA1hSessionOnAnyModel(t *testing.T) {
 	clock := &fakeClock{}
 	prober := &recordingProber{}
-	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound}, nil)
+	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound},
+		func(cfg *Config) { cfg.Probe5m = Probe5mAuto })
 
 	// oneHourBody's model is a haiku, which is not on the cheap-cache-read list.
 	observeOneHour(scheduler, "sess-1h")
@@ -968,6 +986,7 @@ func TestFiveMinuteSessionsUseTheirOwnProbeBudget(t *testing.T) {
 	prober := &recordingProber{result: ProbeResult{CacheReadInputTokens: 4096}}
 	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound},
 		func(cfg *Config) {
+			cfg.Probe5m = Probe5mAuto
 			cfg.MaxProbes = 6
 			cfg.MaxProbes5m = 2
 		})
@@ -991,7 +1010,8 @@ func TestFiveMinuteSessionsUseTheirOwnProbeBudget(t *testing.T) {
 func TestFiveMinuteRescheduleUsesThe5mLeadTime(t *testing.T) {
 	clock := &fakeClock{}
 	prober := &recordingProber{result: ProbeResult{CacheReadInputTokens: 4096}}
-	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound}, nil)
+	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound},
+		func(cfg *Config) { cfg.Probe5m = Probe5mAuto })
 
 	observeFiveMinutes(scheduler, "sess-5m", "claude-fable-5-1")
 	clock.fireLatest(t)
@@ -1007,7 +1027,8 @@ func TestFiveMinuteRescheduleUsesThe5mLeadTime(t *testing.T) {
 func TestSnapshotReportsTheTierAndTheProbe5mSettings(t *testing.T) {
 	clock := &fakeClock{}
 	prober := &recordingProber{}
-	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound}, nil)
+	scheduler := testScheduler(t, clock, prober, staticLiveness{live: true}, staticBinding{authID: "auth-a", state: BindingBound},
+		func(cfg *Config) { cfg.Probe5m = Probe5mAuto })
 
 	observeFiveMinutes(scheduler, "sess-5m", "claude-fable-5-1")
 	observeOneHour(scheduler, "sess-1h")
