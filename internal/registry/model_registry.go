@@ -1412,6 +1412,8 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		return nil
 	}
 
+	thinkingPayload := thinkingPayloadFor(model)
+
 	switch handlerType {
 	case "openai":
 		result := map[string]any{
@@ -1446,6 +1448,9 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		if len(model.SupportedParameters) > 0 {
 			result["supported_parameters"] = append([]string(nil), model.SupportedParameters...)
 		}
+		if thinkingPayload != nil {
+			result["thinking"] = thinkingPayload
+		}
 		return result
 
 	case "claude":
@@ -1473,6 +1478,9 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		}
 		result["max_input_tokens"] = maxInput
 		result["max_tokens"] = maxOutput
+		if thinkingPayload != nil {
+			result["thinking"] = thinkingPayload
+		}
 		return result
 
 	case "gemini":
@@ -1523,8 +1531,40 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		if model.Created != 0 {
 			result["created"] = model.Created
 		}
+		if thinkingPayload != nil {
+			result["thinking"] = thinkingPayload
+		}
 		return result
 	}
+}
+
+// thinkingPayloadFor renders a model's thinking capabilities as a serializable map.
+// Returns nil when the model declares no thinking support so the field stays absent.
+func thinkingPayloadFor(model *ModelInfo) map[string]any {
+	if model == nil || model.Thinking == nil {
+		return nil
+	}
+	t := model.Thinking
+	payload := map[string]any{}
+	if t.Min > 0 {
+		payload["min"] = t.Min
+	}
+	if t.Max > 0 {
+		payload["max"] = t.Max
+	}
+	if t.ZeroAllowed {
+		payload["zero_allowed"] = true
+	}
+	if t.DynamicAllowed {
+		payload["dynamic_allowed"] = true
+	}
+	if len(t.Levels) > 0 {
+		payload["levels"] = append([]string(nil), t.Levels...)
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	return payload
 }
 
 // CleanupExpiredQuotas removes expired quota tracking entries
