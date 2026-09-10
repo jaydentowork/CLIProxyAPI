@@ -337,8 +337,8 @@ func TestReverseRemapOAuthToolNamesRejectsUnsafeMangledAliases(t *testing.T) {
 			wantError: "semantic suffix matches multiple declared tools",
 		},
 		{
-			name:      "unrecoverable semantic suffix",
-			alias:     "mcp__" + firstParts.server + "__" + unknownToolID + "_missing_tool",
+			name:      "malformed unrecoverable semantic suffix",
+			alias:     "mcp__" + firstParts.server + "__" + unknownToolID + "_missing_tool<",
 			wantError: "no unique request-local match",
 		},
 	}

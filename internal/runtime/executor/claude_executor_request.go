@@ -2107,6 +2107,45 @@ func (resolver claudeMCPAliasResolver) resolve(name string) (string, bool, error
 		return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: semantic suffix matches multiple declared tools", name)}
 	}
 
+	// Recover caller-owned MCP names only after ordinary alias recovery, so
+	// they cannot steal a match from a declared non-MCP tool. Claude may
+	// retain or drop the real name's mcp__ prefix; both forms must agree.
+	for _, candidate := range []string{suffix, "mcp__" + suffix} {
+		if original, ok := resolver.exact[candidate]; ok && original == candidate {
+			if matchedOriginal != "" && matchedOriginal != original {
+				return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: matched multiple declared MCP tools", name)}
+			}
+			matchedOriginal = original
+		}
+	}
+	if matchedOriginal != "" {
+		return matchedOriginal, true, nil
+	}
+
+	// A tool component without its server is recoverable only when unique.
+	for alias, original := range resolver.exact {
+		if alias != original {
+			continue
+		}
+		_, tool, ok := strings.Cut(strings.TrimPrefix(alias, "mcp__"), "__")
+		if ok && tool == suffix {
+			matchedOriginal = original
+			matchCount++
+		}
+	}
+	if matchCount == 1 {
+		return matchedOriginal, true, nil
+	}
+	if matchCount > 1 {
+		return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: matched multiple declared MCP tools", name)}
+	}
+	if helps.IsClaudeMCPToolName(name) {
+		// A stale or invented tool name is a client-side tool error, not a
+		// broken stream. Preserve it without guessing a tool to execute.
+		log.Debugf("claude oauth mcp alias: leaving unresolved tool name %q unchanged", name)
+		return "", false, nil
+	}
+
 	return "", false, claudeMCPAliasRestoreError{fmt.Errorf("cannot restore Claude OAuth MCP tool alias %q: no unique request-local match", name)}
 }
 
