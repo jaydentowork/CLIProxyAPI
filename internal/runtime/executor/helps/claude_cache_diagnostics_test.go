@@ -114,9 +114,34 @@ func TestClaudeCacheAnnotationApplyFillsOnlyMissingFields(t *testing.T) {
 	}
 }
 
-func TestParseClaudeStreamUsageKeepsMessageDeltaAsUsageSource(t *testing.T) {
-	if _, ok := ParseClaudeStreamUsage([]byte(messageStartLine)); ok {
-		t.Error("message_start must not be treated as the usage source; message_delta is authoritative")
+func TestClaudeStreamUsageMergesInitialUsageAndCacheDiagnostics(t *testing.T) {
+	var buffer StreamUsageBuffer
+	var annotation ClaudeCacheAnnotation
+	for _, line := range []string{
+		messageStartLine,
+		`data: {"type":"message_delta","usage":{"output_tokens":12}}`,
+	} {
+		if parsed, ok := ParseClaudeCacheAnnotation([]byte(line)); ok {
+			annotation = parsed
+		}
+		detail, ok := ParseClaudeStreamUsage([]byte(line))
+		if !ok {
+			t.Fatalf("expected usage from %s", line)
+		}
+		ObserveMergedStreamUsage(&buffer, annotation.Apply(detail))
+	}
+	detail, ok := buffer.Detail()
+	if !ok || detail.InputTokens != 2 || detail.OutputTokens != 12 || detail.TotalTokens != 197029 {
+		t.Fatalf("expected initial input and final output usage, got %+v (ok=%v)", detail, ok)
+	}
+	if detail.CacheCreationTokens != 197015 || detail.CacheCreation1hTokens != 197015 {
+		t.Errorf("cache creation totals and split were not preserved: %+v", detail)
+	}
+	if detail.CacheMissReason != "tools_changed" || detail.CacheMissedTokens != 90151 {
+		t.Errorf("cache miss diagnostics were not preserved: %+v", detail)
+	}
+	if !detail.TokenBreakdown.Valid() {
+		t.Errorf("invalid merged token breakdown: %+v", detail.TokenBreakdown)
 	}
 }
 

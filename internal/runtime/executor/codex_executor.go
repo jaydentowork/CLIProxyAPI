@@ -43,3 +43,7 @@ func (e *CodexExecutor) resolveCodexBaseURL(auth *cliproxyauth.Auth, credentialB
 	}
 	return defaultCodexBaseURL
 }
+
+func (e *CodexExecutor) modelLevelCooling() bool {
+	return e != nil && e.cfg != nil && e.cfg.Codex.ModelLevelCooling
+}
