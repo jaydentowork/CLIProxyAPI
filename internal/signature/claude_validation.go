@@ -112,9 +112,17 @@
 // complete container/channel tree, absent channel fields 5 and 6, a non-empty
 // container field 5 carrier, and known envelope/channel generation identifiers.
 // Observed-but-incidental channel-version, field-7, and trailer values are
-// checked only for wire type. Block kind accepts any value but must remain
-// well-formed UTF-8 text. An upstream value bump therefore cannot silently erase
-// conversation history.
+// checked only for wire type. Model-tagged block kind accepts any value but must
+// remain well-formed UTF-8 text. An upstream value bump therefore cannot silently
+// erase conversation history.
+//
+// Envelope version 4 and above is the CAQS generation (e.g. claude-fable-5-1 /
+// claude-fable-5-1-max). It omits plaintext model_text, carries the signing bytes
+// in container field 5, and uses the block kind to name the content type; both
+// "thinking" and "narration" are observed. Because model_text is gone, the block
+// kind is the last literal left in the payload, so a present CAQS block kind is
+// checked against the known-kind list instead of accepting arbitrary text. The
+// field itself stays optional, so an absent kind is still accepted.
 //
 // This parser performs no cryptographic verification. The model-tagged branch
 // checks only that opaque signature bytes and the model marker are present, and
@@ -635,6 +643,10 @@ const (
 	// claudeCAISModelTextPrefix is the model_text prefix that distinguishes a
 	// model-tagged CAIS channel block from an arbitrary protobuf payload.
 	claudeCAISModelTextPrefix = "claude-"
+
+	// claudeCAQSMinEnvelopeVersion is the first envelope version that omits
+	// plaintext model_text and moves the signing carrier to container field 5.
+	claudeCAQSMinEnvelopeVersion = 4
 )
 
 // Model-free CAIS envelopes use explicit known-generation allowlists in
@@ -653,6 +665,14 @@ const (
 var (
 	knownClaudeCAISEnvelopeVersions = [...]uint64{2, 4}
 	knownClaudeCAISChannelIDs       = [...]uint64{16, 17}
+
+	// knownClaudeCAQSBlockKinds lists the Anthropic content-block kinds accepted on
+	// CAQS envelopes. Once model_text is dropped the block kind is the only literal
+	// left in the payload, so it also carries the provider separation that model
+	// text used to provide. Channel field 8 stays optional: an absent block kind is
+	// still accepted, because only a present-but-foreign literal is evidence of
+	// another provider. Add a kind here once it is observed in a capture.
+	knownClaudeCAQSBlockKinds = [...]string{"thinking", "narration", "redacted_thinking", "tool_use"}
 )
 
 type claudeCAISUnknownGenerationError struct {
@@ -744,6 +764,15 @@ func ClassifyUnknownCAISGeneration(reason string) (normalized string, ok bool) {
 // non-empty identifier, a single space, and the decimal value running to the
 // end of the string (see claudeCAISUnknownGenerationError.Error()'s "%s %d").
 var claudeCAISUnknownGenerationTrailingShape = regexp.MustCompile(`^` + regexp.QuoteMeta(claudeCAISUnknownGenerationPrefix) + `.+ \d+$`)
+
+func isKnownClaudeCAQSBlockKind(kind string) bool {
+	for _, candidate := range knownClaudeCAQSBlockKinds {
+		if candidate == kind {
+			return true
+		}
+	}
+	return false
+}
 
 func isKnownClaudeCAISIdentifier(known []uint64, value uint64) bool {
 	for _, candidate := range known {
@@ -946,11 +975,16 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 		return info, nil
 	}
 
+	// Model-free CAIS and CAQS move the signing carrier to container field 5, so
+	// report its length as the signature size.
+	info.SignatureLen = len(containerCarrier)
+
 	// Model-free CAIS has no provider literal. Require its moved carrier and both
 	// known generation identifiers, while retaining the model-tagged sibling's
 	// tolerance for incidental varint values and optional fields. The carrier is
 	// validated before the generation identifiers so malformed input never
-	// reports as an unknown generation.
+	// reports as an unknown generation, and the CAQS block kind is checked last so
+	// a structural fault never reports as an unknown kind.
 	switch {
 	case !haveEnvelopeVersion:
 		return nil, fmt.Errorf("invalid Claude model-free CAIS signature: missing envelope version")
@@ -964,6 +998,8 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 		return nil, &claudeCAISUnknownGenerationError{identifier: "envelope version", value: info.EnvelopeVersion}
 	case !isKnownClaudeCAISIdentifier(knownClaudeCAISChannelIDs[:], info.ChannelID):
 		return nil, &claudeCAISUnknownGenerationError{identifier: "channel_id", value: info.ChannelID}
+	case info.EnvelopeVersion >= claudeCAQSMinEnvelopeVersion && info.BlockKind != "" && !isKnownClaudeCAQSBlockKind(info.BlockKind):
+		return nil, fmt.Errorf("invalid Claude CAQS signature: expected a known block kind, got %q", info.BlockKind)
 	}
 
 	return info, nil

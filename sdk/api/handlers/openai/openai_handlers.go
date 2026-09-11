@@ -61,14 +61,16 @@ func (h *OpenAIAPIHandler) Models() []map[string]any {
 func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
 	if _, ok := c.Request.URL.Query()["client_version"]; ok {
 		clientVersion := c.Query("client_version")
-		c.JSON(http.StatusOK, h.codexClientModelsResponse(clientVersion))
+		h.WriteModelListResponse(c, h.HandlerType(), h.codexClientModelsResponse(clientVersion))
 		return
 	}
 
 	// Pass the registry-shaped model maps through as-is. The openai branch of
 	// convertModelToMap supplies id, object, owned_by, created, and any
-	// capability metadata (e.g. thinking) the model declares.
-	c.JSON(http.StatusOK, gin.H{
+	// capability metadata (e.g. thinking) the model declares. Routing the
+	// payload through WriteModelListResponse keeps plugin interceptors in the
+	// loop for /v1/models.
+	h.WriteModelListResponse(c, h.HandlerType(), gin.H{
 		"object": "list",
 		"data":   h.Models(),
 	})
