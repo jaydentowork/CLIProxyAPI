@@ -1261,7 +1261,24 @@ func parseInteractionsPayload(payload, originalRequest []byte) (
 	toolsRes := root.Get("tools")
 	if toolsRes.IsArray() {
 		for _, t := range toolsRes.Array() {
+			if declarations := t.Get("function_declarations"); declarations.IsArray() {
+				for _, declaration := range declarations.Array() {
+					name := declaration.Get("name").String()
+					if name == "" {
+						continue
+					}
+					tools = append(tools, helps.DevinTool{
+						Name:        name,
+						Description: declaration.Get("description").String(),
+						Parameters:  []byte(declaration.Get("parameters").Raw),
+					})
+				}
+				continue
+			}
 			name := t.Get("name").String()
+			if name == "" {
+				continue
+			}
 			desc := t.Get("description").String()
 			params := t.Get("parameters").Raw
 			tools = append(tools, helps.DevinTool{

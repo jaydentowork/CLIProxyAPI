@@ -16,6 +16,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/openai/interactions/responses"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
@@ -207,6 +208,106 @@ func TestParseInteractionsPayload(t *testing.T) {
 	// 3. Tool result turn
 	if prompts[2].Source != 4 || prompts[2].ToolCallID != "call_1" || prompts[2].Content != "package main\n" {
 		t.Errorf("prompt[2] tool result mismatch: %+v", prompts[2])
+	}
+}
+
+func TestParseInteractionsPayload_NamespaceFunctionDeclarations(t *testing.T) {
+	responsesPayload := []byte(`{
+		"model": "devin/swe-2",
+		"input": [{"type":"message","role":"user","content":[{"type":"input_text","text":"call echo_probe"}]}],
+		"tools": [
+			{
+				"type": "function",
+				"name": "flat_probe",
+				"description": "flat probe",
+				"parameters": {"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}
+			},
+			{
+				"type": "namespace",
+				"name": "diagnostic",
+				"tools": [
+					{
+						"type": "function",
+						"name": "echo_probe",
+						"description": "echo probe",
+						"parameters": {"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}
+					},
+					{
+						"type": "function",
+						"name": "second_probe",
+						"description": "second probe",
+						"parameters": {"type":"object","additionalProperties":false}
+					}
+				]
+			}
+		]
+	}`)
+
+	interactionsPayload := sdktranslator.TranslateRequest(
+		sdktranslator.FormatOpenAIResponse,
+		sdktranslator.FormatInteractions,
+		"devin/swe-2",
+		responsesPayload,
+		false,
+	)
+	if got := gjson.GetBytes(interactionsPayload, "tools.1.function_declarations.#").Int(); got != 2 {
+		t.Fatalf("translated namespace declarations = %d, want 2; payload=%s", got, interactionsPayload)
+	}
+
+	_, _, tools, _, _, _, _, _, _ := parseInteractionsPayload(interactionsPayload, nil)
+	if len(tools) != 3 {
+		t.Fatalf("tools count = %d, want 3: %+v", len(tools), tools)
+	}
+	wantNames := []string{"flat_probe", "echo_probe", "second_probe"}
+	for i, wantName := range wantNames {
+		if tools[i].Name != wantName {
+			t.Fatalf("tools[%d].Name = %q, want %q", i, tools[i].Name, wantName)
+		}
+	}
+	wantFlatParams := gjson.GetBytes(interactionsPayload, "tools.0.parameters").Raw
+	if string(tools[0].Parameters) != wantFlatParams {
+		t.Fatalf("flat tool parameters = %s, want %s", tools[0].Parameters, wantFlatParams)
+	}
+	wantEchoParams := gjson.GetBytes(interactionsPayload, "tools.1.function_declarations.0.parameters").Raw
+	if string(tools[1].Parameters) != wantEchoParams {
+		t.Fatalf("echo probe parameters = %s, want %s", tools[1].Parameters, wantEchoParams)
+	}
+	wantSecondParams := gjson.GetBytes(interactionsPayload, "tools.1.function_declarations.1.parameters").Raw
+	if string(tools[2].Parameters) != wantSecondParams {
+		t.Fatalf("second probe parameters = %s, want %s", tools[2].Parameters, wantSecondParams)
+	}
+	if tools[0].Description != "flat probe" || gjson.GetBytes(tools[0].Parameters, "properties.value.type").String() != "string" {
+		t.Fatalf("flat tool mismatch: %+v", tools[0])
+	}
+	if tools[1].Description != "echo probe" || gjson.GetBytes(tools[1].Parameters, "properties.text.type").String() != "string" {
+		t.Fatalf("echo probe mismatch: %+v", tools[1])
+	}
+	if tools[2].Description != "second probe" || gjson.GetBytes(tools[2].Parameters, "additionalProperties").Bool() {
+		t.Fatalf("second probe mismatch: %+v", tools[2])
+	}
+	for i, tool := range tools {
+		if tool.Name == "" || len(tool.Parameters) == 0 {
+			t.Fatalf("tools[%d] contains empty record: %+v", i, tool)
+		}
+	}
+}
+
+func TestParseInteractionsPayload_SkipsUnnamedTools(t *testing.T) {
+	interactionsPayload := []byte(`{"tools":[
+		{"description":"missing flat name"},
+		{"function_declarations":[
+			{"description":"missing name"},
+			{"name":"valid_probe","description":"valid","parameters":{"type":"object"}},
+			{"name":"","description":"blank name"}
+		]}
+	]}`)
+
+	_, _, tools, _, _, _, _, _, _ := parseInteractionsPayload(interactionsPayload, nil)
+	if len(tools) != 1 {
+		t.Fatalf("tools count = %d, want 1: %+v", len(tools), tools)
+	}
+	if tools[0].Name != "valid_probe" || tools[0].Description != "valid" {
+		t.Fatalf("valid declaration mismatch: %+v", tools[0])
 	}
 }
 
