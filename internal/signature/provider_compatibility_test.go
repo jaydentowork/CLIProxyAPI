@@ -9,6 +9,23 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
+func TestSWESignatureCompatibility(t *testing.T) {
+	const payload = "sealed.v1.test-payload"
+	for _, raw := range []string{payload, "swe#" + payload, "sealed#" + payload} {
+		if got, ok := CompatibleSignatureForProvider(SignatureProviderSWE, raw); !ok || got != payload {
+			t.Errorf("SWE replay of %q = (%q, %v), want (%q, true)", raw, got, ok, payload)
+		}
+		if _, ok := CompatibleSignatureForProvider(SignatureProviderClaude, raw); ok {
+			t.Errorf("Claude must reject SWE signature %q", raw)
+		}
+	}
+	for _, raw := range []string{"swe#invalid", "claude#" + payload} {
+		if _, ok := CompatibleSignatureForProvider(SignatureProviderSWE, raw); ok {
+			t.Errorf("SWE must reject invalid or mismatched signature %q", raw)
+		}
+	}
+}
+
 func testClaudeThinkingSignature() string {
 	channelBlock := []byte{}
 	channelBlock = protowire.AppendTag(channelBlock, 1, protowire.VarintType)

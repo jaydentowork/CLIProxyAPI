@@ -188,7 +188,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "claude-sonnet-5",
@@ -2401,7 +2404,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-terra",
@@ -2432,7 +2438,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-luna",
@@ -2469,7 +2478,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "codex-auto-review",
@@ -2499,7 +2511,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     }
   ],
   "codex-team": [
@@ -2531,7 +2546,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-6-astra",
@@ -2562,7 +2580,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-daybreak-blue-latest",
@@ -2625,7 +2646,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-terra",
@@ -2656,7 +2680,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-luna",
@@ -2693,7 +2720,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "codex-auto-review",
@@ -2723,7 +2753,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     }
   ],
   "codex-plus": [
@@ -2756,7 +2789,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-daybreak-blue-latest",
@@ -2817,7 +2853,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.5",
@@ -2847,7 +2886,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-sol",
@@ -2878,7 +2920,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-terra",
@@ -2909,7 +2954,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-luna",
@@ -2946,7 +2994,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "codex-auto-review",
@@ -2976,7 +3027,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     }
   ],
   "codex-pro": [
@@ -3009,7 +3063,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-daybreak-blue-latest",
@@ -3070,7 +3127,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.5",
@@ -3100,7 +3160,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-sol",
@@ -3131,7 +3194,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-terra",
@@ -3162,7 +3228,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "gpt-5.6-luna",
@@ -3199,7 +3268,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "codex-auto-review",
@@ -3229,7 +3301,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     }
   ],
   "kimi": [
@@ -3820,7 +3895,10 @@
       ],
       "supportedOutputModalities": [
         "text"
-      ]
+      ],
+      "native_capabilities": {
+        "web_search": true
+      }
     },
     {
       "id": "grok-build-0.1",
