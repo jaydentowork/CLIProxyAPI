@@ -1995,9 +1995,10 @@ type claudeMCPAliasEntry struct {
 }
 
 type claudeMCPAliasResolver struct {
-	exact   map[string]string
-	aliases []claudeMCPAliasEntry
-	servers map[string]struct{}
+	exact        map[string]string
+	aliases      []claudeMCPAliasEntry
+	servers      map[string]struct{}
+	passthroughs []string
 }
 
 type claudeMCPAliasRestoreError struct {
@@ -2014,14 +2015,17 @@ func (claudeMCPAliasRestoreError) IsRequestScoped() bool {
 
 func newClaudeMCPAliasResolver(reverseMap map[string]string) claudeMCPAliasResolver {
 	resolver := claudeMCPAliasResolver{
-		exact:   reverseMap,
-		aliases: make([]claudeMCPAliasEntry, 0, len(reverseMap)),
-		servers: make(map[string]struct{}),
+		exact:        reverseMap,
+		aliases:      make([]claudeMCPAliasEntry, 0, len(reverseMap)),
+		servers:      make(map[string]struct{}),
+		passthroughs: make([]string, 0),
 	}
 	for alias, original := range reverseMap {
 		if alias == original {
-			// Caller-owned MCP tool recorded for exact passthrough only. It must not
-			// register a virtual server or take part in fuzzy alias recovery.
+			// Caller-owned MCP tool recorded for exact passthrough and fallback hybrid
+			// recovery. It must not register a virtual server or take part in fuzzy
+			// client-tool alias recovery.
+			resolver.passthroughs = append(resolver.passthroughs, original)
 			continue
 		}
 		parts, ok := parseClaudeMCPAlias(alias)
@@ -2199,13 +2203,10 @@ func (resolver claudeMCPAliasResolver) resolve(name string) (string, bool, error
 	}
 
 	// A tool component without its server is recoverable only when unique.
-	for alias, original := range resolver.exact {
-		if alias != original {
-			continue
-		}
-		_, tool, ok := strings.Cut(strings.TrimPrefix(alias, "mcp__"), "__")
+	for _, passthrough := range resolver.passthroughs {
+		_, tool, ok := strings.Cut(strings.TrimPrefix(passthrough, "mcp__"), "__")
 		if ok && tool == suffix {
-			matchedOriginal = original
+			matchedOriginal = passthrough
 			matchCount++
 		}
 	}
