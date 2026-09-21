@@ -472,6 +472,7 @@ func plausibleClaudeCodeUserAgent(userAgent string, cfg *config.Config) bool {
 	}
 	candidate, okCandidate := parseClaudeCLIVersion(userAgent)
 	baseline, okBaseline := parseClaudeCLIVersion(defaultClaudeDeviceProfile(cfg).UserAgent)
+	// The configured baseline is a floor; drift beyond one major is rejected.
 	return okCandidate && okBaseline && plausibleClaudeCLIVersion(candidate, baseline)
 }
 

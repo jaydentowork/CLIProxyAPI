@@ -77,6 +77,17 @@ func TestDetectClaudeCodeRequestRequiresAllFourMessageSignals(t *testing.T) {
 	}
 }
 
+func TestDetectClaudeCodeRequestAcceptsNewerPatchInMeasuredReleaseLine(t *testing.T) {
+	headers := confirmedClaudeCodeHeaders()
+	headers.Set("User-Agent", "claude-cli/2.1.263 (external, cli)")
+	payload := claudeCodeDetectionPayload(validClaudeCodeMetadataUserID)
+
+	detection := DetectClaudeCodeRequest(headers, payload, false)
+	if !detection.Confirmed || !detection.StrongSignals || !detection.NativeClient {
+		t.Fatalf("detection = %#v, want newer 2.1.x native CLI confirmed", detection)
+	}
+}
+
 func TestDetectClaudeCodeRequestAcceptsConfiguredMeasuredBaseline(t *testing.T) {
 	headers := confirmedClaudeCodeHeaders()
 	headers.Set("User-Agent", "claude-cli/2.2.0 (external, cli)")
@@ -356,6 +367,7 @@ func TestDetectClaudeCodeRequestRejectsMalformedNativeSignals(t *testing.T) {
 		// The configured version is a floor, so a NEWER client is now plausible and
 		// a stale copied User-Agent below the floor is what must be rejected.
 		{name: "stale prior-minor user agent", headers: http.Header{"User-Agent": {"claude-cli/2.0.999 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
+		{name: "older patch user agent", headers: http.Header{"User-Agent": {"claude-cli/2.1.257 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
 		{name: "implausible future user agent", headers: http.Header{"User-Agent": {"claude-cli/999.0.0 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
 		{name: "unrelated beta", headers: http.Header{"User-Agent": {"claude-cli/2.1.258 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"anything"}}, userID: validClaudeCodeMetadataUserID},
 	}
