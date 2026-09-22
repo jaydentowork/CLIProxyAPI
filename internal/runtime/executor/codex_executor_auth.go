@@ -88,15 +88,22 @@ func codexCredentialUsesOAuth(auth *cliproxyauth.Auth) bool {
 }
 
 func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.CodexKey {
-	if auth == nil || e.cfg == nil {
+	if e == nil {
+		return nil
+	}
+	return resolveCodexKeyConfig(e.cfg, auth)
+}
+
+func resolveCodexKeyConfig(cfg *config.Config, auth *cliproxyauth.Auth) *config.CodexKey {
+	if auth == nil || cfg == nil {
 		return nil
 	}
 	var attrKey, attrBase string
 	if auth.Attributes != nil {
 		attrKey = strings.TrimSpace(auth.Attributes["api_key"])
 		attrBase = strings.TrimSpace(auth.Attributes["base_url"])
-		if index, errIndex := strconv.Atoi(strings.TrimSpace(auth.Attributes[cliproxyauth.AttributeConfigIndex])); errIndex == nil && index >= 0 && index < len(e.cfg.CodexKey) {
-			entry := &e.cfg.CodexKey[index]
+		if index, errIndex := strconv.Atoi(strings.TrimSpace(auth.Attributes[cliproxyauth.AttributeConfigIndex])); errIndex == nil && index >= 0 && index < len(cfg.CodexKey) {
+			entry := &cfg.CodexKey[index]
 			cfgKey := strings.TrimSpace(entry.APIKey)
 			cfgBase := strings.TrimSpace(entry.BaseURL)
 			if (attrKey == "" || strings.EqualFold(cfgKey, attrKey)) && (attrBase == "" || strings.EqualFold(cfgBase, attrBase)) {
@@ -104,8 +111,8 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 			}
 		}
 	}
-	for i := range e.cfg.CodexKey {
-		entry := &e.cfg.CodexKey[i]
+	for i := range cfg.CodexKey {
+		entry := &cfg.CodexKey[i]
 		cfgKey := strings.TrimSpace(entry.APIKey)
 		cfgBase := strings.TrimSpace(entry.BaseURL)
 		if attrKey != "" && attrBase != "" {
@@ -124,8 +131,8 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 		}
 	}
 	if attrKey != "" {
-		for i := range e.cfg.CodexKey {
-			entry := &e.cfg.CodexKey[i]
+		for i := range cfg.CodexKey {
+			entry := &cfg.CodexKey[i]
 			if strings.EqualFold(strings.TrimSpace(entry.APIKey), attrKey) {
 				return entry
 			}
