@@ -876,7 +876,7 @@ nonstream-keepalive-interval: 0
 # stabilize-device-profile is enabled, OS/arch are pinned to the values below while newer
 # software profiles can be learned.
 # claude-header-defaults:
-#   user-agent: "claude-cli/2.1.258 (external, cli)"
+#   user-agent: "claude-cli/2.1.280 (external, cli)"
 #   package-version: "0.112.1"
 #   runtime-version: "v26.3.0"
 #   os: "MacOS"
