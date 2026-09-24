@@ -826,6 +826,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 					if isModelSupportResultError(result.Error) {
 						if disableCooling {
 							state.NextRetryAfter = time.Time{}
+						} else if result.RetryAfter != nil && *result.RetryAfter > 0 {
+							state.NextRetryAfter = now.Add(*result.RetryAfter)
 						} else {
 							next := now.Add(modelSupportCooldown)
 							state.NextRetryAfter = next
@@ -865,6 +867,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								// A 404 that explicitly names this model as unsupported is
 								// demonstrably persistent and keeps the long cooldown.
 								state.NextRetryAfter = now.Add(modelSupportCooldown)
+							} else if result.RetryAfter != nil && *result.RetryAfter > 0 {
+								state.NextRetryAfter = now.Add(*result.RetryAfter)
 							} else {
 								state.NextRetryAfter = now.Add(notFoundCooldown)
 							}
@@ -2235,6 +2239,8 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 			auth.StatusMessage = "not_found"
 			if disableCooling {
 				auth.NextRetryAfter = time.Time{}
+			} else if retryAfter != nil && *retryAfter > 0 {
+				auth.NextRetryAfter = now.Add(*retryAfter)
 			} else {
 				auth.NextRetryAfter = now.Add(notFoundCooldown)
 			}

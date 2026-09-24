@@ -56,3 +56,35 @@ func TestManager_MarkResult_SingleNotFoundCooldownsMinutes(t *testing.T) {
 		})
 	}
 }
+
+func TestManager_MarkResult_NotFoundRetryAfter(t *testing.T) {
+	previous := quotaCooldownDisabled.Load()
+	quotaCooldownDisabled.Store(false)
+	t.Cleanup(func() { quotaCooldownDisabled.Store(previous) })
+
+	hint := 25 * time.Minute
+	for _, tc := range []struct {
+		name  string
+		model string
+		err   *Error
+		want  time.Duration
+	}{
+		{"credential hint", "", &Error{HTTPStatus: 404}, hint},
+		{"model hint", "gpt-5.6-sol", &Error{HTTPStatus: 404}, hint},
+		{"explicit model remains long", "gpt-5.6-sol", &Error{HTTPStatus: 404, Message: `{"error":{"type":"not_found_error","message":"model gpt-5.6-sol was not found"}}`}, modelSupportCooldown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewManager(nil, nil, nil)
+			auth := &Auth{ID: tc.name, Provider: "codex"}
+			if _, errRegister := m.Register(context.Background(), auth); errRegister != nil {
+				t.Fatal(errRegister)
+			}
+			m.MarkResult(context.Background(), Result{AuthID: auth.ID, Provider: auth.Provider, Model: tc.model, Error: tc.err, RetryAfter: &hint})
+			updated, _ := m.GetByID(auth.ID)
+			remaining := time.Until(updated.NextRetryAfter)
+			if remaining < tc.want-time.Minute || remaining > tc.want {
+				t.Fatalf("cooldown = %v, want about %v", remaining, tc.want)
+			}
+		})
+	}
+}
