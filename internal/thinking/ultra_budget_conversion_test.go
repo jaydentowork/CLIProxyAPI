@@ -3,7 +3,7 @@ package thinking_test
 import (
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
 )
 
 // TestConvertUltraLevelToBudget guards the budget-only provider path for the

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/keepalive"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/keepalive"
 )
 
 type keepaliveTestProber struct{ result keepalive.ProbeResult }

@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	proxyconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	proxyconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 )
 
 func TestManagementClaudeClientVersionsReportsObservedDrift(t *testing.T) {

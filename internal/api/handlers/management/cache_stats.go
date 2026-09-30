@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/cachestats"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/cachestats"
 )
 
 // cacheStatsResponse is the payload of GET /v0/management/cache-stats.

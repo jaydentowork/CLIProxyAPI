@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
 
 // UsagePluginName is the name the hook registers under on the usage manager, so

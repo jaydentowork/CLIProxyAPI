@@ -3,7 +3,7 @@ package cliproxy
 import (
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 )
 
 // The two fragments below are the confirmed wire shapes for the cache-diagnosis

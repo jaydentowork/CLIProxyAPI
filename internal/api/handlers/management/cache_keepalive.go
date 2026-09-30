@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/keepalive"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/keepalive"
 )
 
 // GetCacheKeepalive reports the state of the Claude Code prompt-cache keepalive
