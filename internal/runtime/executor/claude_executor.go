@@ -334,3 +334,6 @@ func (e *ClaudeExecutor) resolveClaudeBaseURL(auth *cliproxyauth.Auth, apiKey, c
 	}
 	return defaultClaudeBaseURL
 }
+
+// SupportsApplyPatch reports the actual executor contract, independent of its provider name.
+func (e *ClaudeExecutor) SupportsApplyPatch() bool { return e != nil }
