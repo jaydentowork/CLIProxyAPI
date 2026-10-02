@@ -525,10 +525,10 @@ func TestV8MigrationPreservesEmptyLegacyContainers(t *testing.T) {
 		{"streaming", "requests.streaming"}, {"payload", "requests.payload"},
 		{"codex", "oauth.providers.codex"}, {"codex.live-media-relay", "oauth.providers.codex.live-media-relay"},
 		{"codex-header-defaults", "oauth.providers.codex.header-defaults"},
-		{"claude", "oauth.providers.claude"}, {"claude-code", "oauth.providers.claude.claude-code"},
-		{"claude-header-defaults", "oauth.providers.claude.header-defaults"},
+		{"claude", "upstream.claude"}, {"claude-code", "upstream.claude"},
+		{"claude-header-defaults", "upstream.claude.header-defaults"},
 		{"antigravity", "oauth.providers.antigravity"}, {"antigravity.connection-pool", "oauth.providers.antigravity.connection-pool"},
-		{"xai", "oauth.providers.xai"}, {"devin", "oauth.providers.devin"},
+		{"xai", "upstream.xai"}, {"devin", "oauth.providers.devin"},
 	} {
 		for _, empty := range []string{"{}", "null"} {
 			t.Run(section.old+"/"+empty, func(t *testing.T) {
@@ -950,7 +950,26 @@ func TestV8MigrationMovesForkOnlySettings(t *testing.T) {
 	if cfg.ClaudeBaseURL != "http://claude.local" || cfg.CodexBaseURL != "http://codex.local" || !cfg.UsageCacheStats.Enabled || cfg.UsageCacheStats.MaxSessions != 7 {
 		t.Fatalf("fork-only settings lost during v8 migration:\n%s", migrated)
 	}
-	if api := cfg.ForAPIKey(); api.ClaudeBaseURL != "" || api.CodexBaseURL != "" {
-		t.Fatal("v8 OAuth base URLs must not apply to API-key credentials")
+	// The Claude executor applies ClaudeBaseURL to OAuth credentials only.
+	if api := cfg.ForAPIKey(); api.CodexBaseURL != "" {
+		t.Fatal("v8 OAuth Codex base URL must not apply to API-key credentials")
+	}
+}
+
+func TestV8HistoricalClaudeForkSettingsMoveToUpstream(t *testing.T) {
+	raw := []byte("config-version: 8\noauth: {providers: {claude: {base-url: http://claude.local, claude-code: {cache-keepalive: {enabled: true, max-probes: 3}}}}}\n")
+	migrated, _, err := NormalizeConfigLayout(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ValidateV8Config(migrated); err != nil {
+		t.Fatalf("migrated config is invalid: %v\n%s", err, migrated)
+	}
+	cfg, err := ParseConfigBytes(migrated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ClaudeBaseURL != "http://claude.local" || !cfg.ClaudeCode.CacheKeepalive.Enabled || cfg.ClaudeCode.CacheKeepalive.MaxProbes != 3 {
+		t.Fatalf("historical Claude fork settings lost:\n%s", migrated)
 	}
 }
