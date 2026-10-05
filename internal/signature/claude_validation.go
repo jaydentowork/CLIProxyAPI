@@ -12,9 +12,11 @@
 //     base64 index 4 = E.
 //   - R prefix: double-layer, inner[0] == E (0x45), first 6 bits = 010001,
 //     base64 index 17 = R.
+//   - Q prefix: double-layer CAQS, inner[0] == C (0x43); inspected separately
+//     with the observed Google version-4 thinking channel schema.
 //
-// Valid signatures can be normalized to R-form (double-layer base64) before
-// sending to the Antigravity backend.
+// Classic signatures normalize to R-form before Antigravity replay. Valid
+// Q-form signatures keep their original wrapper unchanged.
 //
 // # Protobuf structure (Spec sections 4.1 and 4.2) in strict mode only
 //
@@ -155,11 +157,11 @@
 //     emits the single-layer E envelope.
 //   - Claude Messages API: the full Claude model range, same envelopes as the
 //     Claude Code OAuth subscription.
-//   - Antigravity: only opus-4-6-think and sonnet-4-6, and always the
-//     double-layer R form on Google infrastructure (infra_google). Antigravity
-//     never issues a CAIS envelope or a single-layer E signature, and its replay
-//     path requires R form, so CompatibleAntigravityClaudeThinkingSignature
-//     rejects CAIS signatures.
+//   - Antigravity: legacy Claude models use double-layer R form on Google
+//     infrastructure. Claude 5.5 also emits double-layer CAQS (Q-form): one
+//     base64 decode yields CAQS, and the second yields an envelope version 4
+//     protobuf with Google infrastructure in the channel block. Preserve that
+//     wrapper on replay; bare native CAIS/CAQS is not an Antigravity wrapper.
 //
 // A single conversation therefore mixes envelopes whenever a user switches model
 // generations or providers, and every form must stay replayable toward the
@@ -183,14 +185,16 @@ const MaxClaudeThinkingSignatureLen = 32 * 1024 * 1024
 // ClaudeSignatureValidationOptions controls how far Claude thinking signatures
 // are inspected. The base validation always checks the cache prefix, base64
 // layers, and decoded 0x12 Claude payload marker. Strict mode additionally
-// verifies the known protobuf tree used by Claude thinking signatures.
+// verifies the classic protobuf tree. Q-form always receives full structural
+// validation, regardless of these legacy validation options.
 type ClaudeSignatureValidationOptions struct {
-	// PrefixOnly only checks for an optional cache prefix followed by an E/R
-	// Claude signature prefix. Use it to preserve legacy shallow cleanup.
+	// PrefixOnly checks the legacy E/R prefix or a fully validated Q envelope.
+	// Use it to preserve legacy shallow cleanup without blindly allowing Q.
 	PrefixOnly bool
 	// Base64Only checks the optional cache prefix, E/R Claude signature prefix,
 	// and base64 layers without validating the decoded Claude marker or protobuf
-	// tree. Use it for conservative request cleanup.
+	// tree for legacy E/R; Q envelopes always receive structural validation.
+	// Use it for conservative request cleanup.
 	Base64Only bool
 	// AllowEmptySignatureWithEmptyText preserves empty thinking placeholders with
 	// no signature and no thinking/text payload during strip operations.
@@ -233,8 +237,8 @@ func IsValidClaudeThinkingSignature(rawSignature string, opts ...ClaudeSignature
 	return err == nil
 }
 
-// HasDecodableClaudeThinkingSignature reports whether rawSignature has the
-// Claude E/R shape and its expected base64 layer(s) can be decoded.
+// HasDecodableClaudeThinkingSignature checks legacy E/R encoding or a strictly
+// validated Antigravity double-layer CAQS envelope.
 func HasDecodableClaudeThinkingSignature(rawSignature string) bool {
 	sig := stripClaudeSignaturePrefix(rawSignature)
 	if sig == "" || len(sig) > MaxClaudeThinkingSignatureLen {
@@ -242,6 +246,9 @@ func HasDecodableClaudeThinkingSignature(rawSignature string) bool {
 	}
 
 	switch sig[0] {
+	case 'Q':
+		_, err := InspectAntigravityClaudeCAQSSignature(sig)
+		return err == nil
 	case 'E':
 		decoded, err := base64.StdEncoding.DecodeString(sig)
 		return err == nil && len(decoded) > 0
@@ -258,11 +265,15 @@ func HasDecodableClaudeThinkingSignature(rawSignature string) bool {
 }
 
 // HasClaudeThinkingSignaturePrefix reports whether rawSignature has the Claude
-// E/R signature prefix after stripping an optional cache prefix.
+// E/R prefix or a structurally validated Q envelope after cache-prefix removal.
 func HasClaudeThinkingSignaturePrefix(rawSignature string) bool {
 	sig := stripClaudeSignaturePrefix(rawSignature)
 	if sig == "" {
 		return false
+	}
+	if sig[0] == 'Q' {
+		_, err := InspectAntigravityClaudeCAQSSignature(sig)
+		return err == nil
 	}
 	return sig[0] == 'E' || sig[0] == 'R'
 }
@@ -315,8 +326,8 @@ func ValidateClaudeThinkingSignatures(inputRawJSON []byte, opts ...ClaudeSignatu
 }
 
 // NormalizeClaudeThinkingSignature strips any cache prefix, validates the
-// signature, and returns the double-layer R-form expected by Antigravity bypass
-// mode.
+// signature, and returns the double-layer R or Q form expected by Antigravity.
+// Q envelopes always require structural validation, even in shallow modes.
 func NormalizeClaudeThinkingSignature(rawSignature string, opts ...ClaudeSignatureValidationOptions) (string, error) {
 	opt := claudeSignatureValidationOptions(opts)
 	sig := stripClaudeSignaturePrefix(rawSignature)
@@ -329,6 +340,11 @@ func NormalizeClaudeThinkingSignature(rawSignature string, opts ...ClaudeSignatu
 	}
 
 	switch sig[0] {
+	case 'Q':
+		if _, err := InspectAntigravityClaudeCAQSSignature(sig); err != nil {
+			return "", err
+		}
+		return sig, nil
 	case 'R':
 		if err := validateClaudeDoubleLayerSignature(sig, opt); err != nil {
 			return "", err
@@ -340,7 +356,7 @@ func NormalizeClaudeThinkingSignature(rawSignature string, opts ...ClaudeSignatu
 		}
 		return base64.StdEncoding.EncodeToString([]byte(sig)), nil
 	default:
-		return "", fmt.Errorf("invalid signature: expected 'E' or 'R' prefix, got %q", string(sig[0]))
+		return "", fmt.Errorf("invalid signature: expected 'E', 'R' or 'Q' prefix, got %q", string(sig[0]))
 	}
 }
 
@@ -661,10 +677,11 @@ const (
 // adds a generation, confirm its complete protobuf tree against captures, then
 // add its envelope version or channel id here. Channel id 11 is intentionally
 // absent because it has only been observed under the legacy 0x12 envelope, never
-// under CAIS.
+// under CAIS. Channel id 18 is the Google-infrastructure channel observed in
+// Antigravity Claude 5.5 CAQS captures.
 var (
 	knownClaudeCAISEnvelopeVersions = [...]uint64{2, 4}
-	knownClaudeCAISChannelIDs       = [...]uint64{16, 17}
+	knownClaudeCAISChannelIDs       = [...]uint64{16, 17, 18}
 
 	// knownClaudeCAQSBlockKinds lists the Anthropic content-block kinds accepted on
 	// CAQS envelopes. Once model_text is dropped the block kind is the only literal
@@ -788,12 +805,14 @@ func isKnownClaudeCAISIdentifier(known []uint64, value uint64) bool {
 type ClaudeCAISSignatureInfo struct {
 	FirstByte       byte
 	EnvelopeVersion uint64
+	Infrastructure  *uint64
 	ChannelID       uint64
 	ModelText       string
 	BlockKind       string
 	ContextID       string
 
-	SignatureLen int
+	SignatureLen         int
+	SignatureInContainer bool
 }
 
 // IsValidClaudeCAISSignature reports whether rawSignature has a recognized
@@ -828,6 +847,12 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 	if err != nil {
 		return nil, fmt.Errorf("invalid Claude CAIS signature: base64 decode failed: %w", err)
 	}
+	return inspectClaudeCAISPayload(decoded, false)
+}
+
+// inspectClaudeCAISPayload shares native envelope parsing with the Q replay gate.
+// Only Q rejects duplicate submessages; native CAIS/CAQS behavior is unchanged.
+func inspectClaudeCAISPayload(decoded []byte, rejectDuplicateMessages bool) (*ClaudeCAISSignatureInfo, error) {
 	if len(decoded) == 0 {
 		return nil, fmt.Errorf("invalid Claude CAIS signature: empty after decode")
 	}
@@ -838,8 +863,8 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 	info := &ClaudeCAISSignatureInfo{FirstByte: decoded[0]}
 
 	var container []byte
-	var haveEnvelopeVersion bool
-	err = walkClaudeProtobufFields(decoded, func(num protowire.Number, typ protowire.Type, raw []byte) error {
+	var haveEnvelopeVersion, haveContainer bool
+	err := walkClaudeProtobufFields(decoded, func(num protowire.Number, typ protowire.Type, raw []byte) error {
 		switch num {
 		case 1:
 			value, errField := decodeClaudeCAISVarint(raw, typ, "CAIS top-level field 1 envelope version")
@@ -849,6 +874,10 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 			info.EnvelopeVersion = value
 			haveEnvelopeVersion = true
 		case 2:
+			if rejectDuplicateMessages && haveContainer {
+				return fmt.Errorf("invalid Antigravity CAQS signature: duplicate container")
+			}
+			haveContainer = true
 			value, errField := decodeClaudeCAISBytes(raw, typ, "CAIS top-level field 2 container")
 			if errField != nil {
 				return errField
@@ -870,10 +899,14 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 
 	var channelBlock, containerCarrier []byte
 	var containerCarrierType protowire.Type
-	var haveContainerCarrier bool
+	var haveChannelBlock, haveContainerCarrier bool
 	err = walkClaudeProtobufFields(container, func(num protowire.Number, typ protowire.Type, raw []byte) error {
 		switch num {
 		case 1:
+			if rejectDuplicateMessages && haveChannelBlock {
+				return fmt.Errorf("invalid Antigravity CAQS signature: duplicate channel block")
+			}
+			haveChannelBlock = true
 			value, errField := decodeClaudeCAISBytes(raw, typ, "CAIS container field 1 channel block")
 			if errField != nil {
 				return errField
@@ -909,6 +942,12 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 			}
 			info.ChannelID = value
 			haveChannelID = true
+		case 2:
+			value, errField := decodeClaudeCAISVarint(raw, typ, "CAIS channel field 2 infrastructure")
+			if errField != nil {
+				return errField
+			}
+			info.Infrastructure = &value
 		case 3:
 			if _, errField := decodeClaudeCAISVarint(raw, typ, "CAIS channel field 3 version"); errField != nil {
 				return errField
@@ -978,6 +1017,7 @@ func InspectClaudeCAISSignature(rawSignature string) (*ClaudeCAISSignatureInfo, 
 	// Model-free CAIS and CAQS move the signing carrier to container field 5, so
 	// report its length as the signature size.
 	info.SignatureLen = len(containerCarrier)
+	info.SignatureInContainer = true
 
 	// Model-free CAIS has no provider literal. Require its moved carrier and both
 	// known generation identifiers, while retaining the model-tagged sibling's

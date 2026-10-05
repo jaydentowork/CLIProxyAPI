@@ -998,7 +998,7 @@ func TestClaudeModelFreeCAISSignature_UsesStructuralGenerationRecognition(t *tes
 		}()},
 		{"unknown channel id", func() claudeModelFreeCAISParts {
 			p := defaultClaudeModelFreeCAISParts()
-			p.channelID = 18
+			p.channelID = 19
 			return p
 		}()},
 		{"legacy-only channel id", func() claudeModelFreeCAISParts {
@@ -1106,7 +1106,7 @@ func TestClaudeModelFreeCAISSignature_UnknownGenerationReasonIsSpecific(t *testi
 		mutate func(*claudeModelFreeCAISParts)
 		want   string
 	}{
-		{"channel id", func(parts *claudeModelFreeCAISParts) { parts.channelID = 18 }, "unknown channel_id 18"},
+		{"channel id", func(parts *claudeModelFreeCAISParts) { parts.channelID = 19 }, "unknown channel_id 19"},
 		{"envelope version", func(parts *claudeModelFreeCAISParts) { parts.envelopeVersion = 5 }, "unknown envelope version 5"},
 	}
 	for _, tc := range cases {
@@ -1296,7 +1296,7 @@ func TestClaudeModelFreeCAISSignature_CarrierValidatedBeforeGeneration(t *testin
 
 	t.Run("unknown channel_id with empty carrier reports the carrier defect", func(t *testing.T) {
 		parts := defaultClaudeModelFreeCAISParts()
-		parts.channelID = 18
+		parts.channelID = 19
 		parts.carrierLen = 0
 		signature := parts.encode()
 

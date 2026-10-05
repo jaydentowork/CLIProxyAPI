@@ -120,6 +120,54 @@ func TestOpenAICompatExecutorPayloadOverrideWinsOverThinkingSuffix(t *testing.T)
 	}
 }
 
+func TestOpenAICompatExecutorNonStreamToolCallFallbackAppliesPayloadRules(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+
+	executor := NewOpenAICompatExecutor("openai-compatibility", &config.Config{
+		OpenAICompatibility: []config.OpenAICompatibility{{Name: "compat", NonStreamToolCalls: true}},
+		Payload: config.PayloadConfig{
+			Override: []config.PayloadRule{{
+				Models: []config.PayloadModelRule{{Name: "custom-openai", Protocol: "openai"}},
+				Params: map[string]any{"reasoning_effort": "low"},
+			}},
+		},
+	})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"base_url":     server.URL + "/v1",
+		"api_key":      "test",
+		"compat_name":  "compat",
+		"provider_key": "compat",
+	}}
+	result, err := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "custom-openai",
+		Payload: []byte(`{"model":"custom-openai","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object"}}}],"stream":true}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FromString("openai"),
+		Stream:       true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream error: %v", err)
+	}
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("stream chunk error: %v", chunk.Err)
+		}
+	}
+	if gjson.GetBytes(gotBody, "stream").Bool() {
+		t.Fatalf("fallback must send a non-stream request; body=%s", string(gotBody))
+	}
+	if got := gjson.GetBytes(gotBody, "reasoning_effort").String(); got != "low" {
+		t.Fatalf("reasoning_effort = %q, want %q; body=%s", got, "low", string(gotBody))
+	}
+}
+
 func TestOpenAICompatExecutorApplyPromptCacheKey(t *testing.T) {
 	tests := []struct {
 		name        string

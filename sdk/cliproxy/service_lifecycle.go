@@ -38,6 +38,9 @@ func (s *Service) Run(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	ctx, runCancel := context.WithCancel(ctx)
+	s.cfgMu.Lock()
+	s.antigravityContext = ctx
+	s.cfgMu.Unlock()
 	s.homeMu.Lock()
 	s.runCancel = runCancel
 	s.homeMu.Unlock()
@@ -49,6 +52,8 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 		s.homeMu.Unlock()
 	}()
+
+	s.startModelCatalogUpdaters(ctx)
 
 	usage.StartDefault(ctx)
 	homeEnabled := s.cfg != nil && s.cfg.Home.Enabled
@@ -210,6 +215,9 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	s.registerModelRefreshCallback()
+	if !homeEnabled {
+		go s.runAntigravityModelRefresh(ctx)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -240,6 +248,12 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 
 		keepalive.SetDefault(nil)
+		s.homeMu.Lock()
+		runCancel := s.runCancel
+		s.homeMu.Unlock()
+		if runCancel != nil {
+			runCancel()
+		}
 
 		s.homeLifecycleMu.Lock()
 		if supervisor := s.homeSupervisor; supervisor != nil {
@@ -378,4 +392,14 @@ func (s *Service) ensureAuthDir() error {
 		return fmt.Errorf("cliproxy: auth path exists but is not a directory: %s", s.cfg.AuthDir)
 	}
 	return nil
+}
+
+// startModelCatalogUpdaters applies the same catalog policy for SDK and CLI users.
+func (s *Service) startModelCatalogUpdaters(ctx context.Context) {
+	s.cfgMu.RLock()
+	cfg := s.cfg
+	s.cfgMu.RUnlock()
+	if cfg != nil {
+		registry.StartModelCatalogUpdaters(ctx, cfg.Models, cfg.Home.Enabled)
+	}
 }
