@@ -2484,7 +2484,7 @@ func TestDevinExecutor_ClaudeToolResultEndToEnd(t *testing.T) {
 	}`)
 
 	// Real conversion from Claude request to Interactions format
-	interactionsJSON := interactionsclaude.ConvertClaudeRequestToInteractions("devin/swe-2", claudeReq, true)
+	interactionsJSON, _ := interactionsclaude.ConvertClaudeRequestToInteractions("devin/swe-2", claudeReq, true)
 
 	systemPrompt, prompts, tools, temp, maxTokens, sessionID, cascadeID, _, _ := parseInteractionsPayload(interactionsJSON, claudeReq)
 
@@ -2818,7 +2818,7 @@ func TestDevinExecutor_ClaudeToolResultMixedBusinessJSONEndToEnd(t *testing.T) {
 		]
 	}`)
 
-	interactionsJSON := interactionsclaude.ConvertClaudeRequestToInteractions("devin/swe-2", claudeReq, false)
+	interactionsJSON, _ := interactionsclaude.ConvertClaudeRequestToInteractions("devin/swe-2", claudeReq, false)
 	_, prompts, _, _, _, _, _, _, _ := parseInteractionsPayload(interactionsJSON, claudeReq)
 
 	if len(prompts) != 2 {

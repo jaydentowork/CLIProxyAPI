@@ -11,6 +11,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/redisqueue"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/keepalive"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
@@ -399,7 +400,10 @@ func (s *Service) startModelCatalogUpdaters(ctx context.Context) {
 	s.cfgMu.RLock()
 	cfg := s.cfg
 	s.cfgMu.RUnlock()
+	proxyURL := ""
 	if cfg != nil {
 		registry.StartModelCatalogUpdaters(ctx, cfg.Models, cfg.Home.Enabled)
+		proxyURL = cfg.ProxyURL
 	}
+	executor.StartXAIVersionUpdater(ctx, proxyURL)
 }
