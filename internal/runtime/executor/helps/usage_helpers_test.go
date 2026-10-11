@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
@@ -1266,5 +1268,109 @@ func TestUsageReporter_ExplicitTraceIDPrecedenceOverLogRequestID(t *testing.T) {
 
 	if record.TraceID != "explicit-trace-1" {
 		t.Fatalf("record.TraceID = %q, want explicit-trace-1", record.TraceID)
+	}
+}
+
+func TestUsageReporter_DistinguishesNativeKey(t *testing.T) {
+	t.Run("native_key_via_gin", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		ginCtx, _ := gin.CreateTestContext(w)
+		ginCtx.Set("userApiKey", "sk-native-key")
+		ginCtx.Set("accessProvider", "config-inline")
+
+		ctx := context.WithValue(context.Background(), "gin", ginCtx)
+		reporter := NewUsageReporter(ctx, "openai", "gpt-5.4", nil)
+		if !reporter.IsNativeKey() {
+			t.Fatalf("reporter.IsNativeKey() = false, want true")
+		}
+		if reporter.AccessProvider() != "config-inline" {
+			t.Fatalf("reporter.AccessProvider() = %q, want %q", reporter.AccessProvider(), "config-inline")
+		}
+
+		record := reporter.buildRecord(usage.Detail{TotalTokens: 10}, false, usage.Failure{})
+		if !record.IsNativeKey {
+			t.Fatalf("record.IsNativeKey = false, want true")
+		}
+		if record.AccessProvider != "config-inline" {
+			t.Fatalf("record.AccessProvider = %q, want %q", record.AccessProvider, "config-inline")
+		}
+	})
+
+	t.Run("plugin_key_via_gin", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		ginCtx, _ := gin.CreateTestContext(w)
+		ginCtx.Set("userApiKey", "plugin-principal")
+		ginCtx.Set("accessProvider", "custom-auth-plugin")
+
+		ctx := context.WithValue(context.Background(), "gin", ginCtx)
+		reporter := NewUsageReporter(ctx, "openai", "gpt-5.4", nil)
+		if reporter.IsNativeKey() {
+			t.Fatalf("reporter.IsNativeKey() = true, want false")
+		}
+		if reporter.AccessProvider() != "custom-auth-plugin" {
+			t.Fatalf("reporter.AccessProvider() = %q, want %q", reporter.AccessProvider(), "custom-auth-plugin")
+		}
+
+		record := reporter.buildRecord(usage.Detail{TotalTokens: 10}, false, usage.Failure{})
+		if record.IsNativeKey {
+			t.Fatalf("record.IsNativeKey = true, want false")
+		}
+		if record.AccessProvider != "custom-auth-plugin" {
+			t.Fatalf("record.AccessProvider = %q, want %q", record.AccessProvider, "custom-auth-plugin")
+		}
+	})
+
+	t.Run("native_key_via_context", func(t *testing.T) {
+		ctx := usage.WithAccessProvider(context.Background(), "config-api-key")
+		reporter := NewUsageReporter(ctx, "openai", "gpt-5.4", nil)
+		if !reporter.IsNativeKey() {
+			t.Fatalf("reporter.IsNativeKey() = false, want true")
+		}
+		if reporter.AccessProvider() != "config-api-key" {
+			t.Fatalf("reporter.AccessProvider() = %q, want %q", reporter.AccessProvider(), "config-api-key")
+		}
+
+		record := reporter.buildRecord(usage.Detail{TotalTokens: 10}, false, usage.Failure{})
+		if !record.IsNativeKey {
+			t.Fatalf("record.IsNativeKey = false, want true")
+		}
+		if record.AccessProvider != "config-api-key" {
+			t.Fatalf("record.AccessProvider = %q, want %q", record.AccessProvider, "config-api-key")
+		}
+	})
+}
+
+func TestUsageReporterPreservesAccessAndForkMetadata(t *testing.T) {
+	for _, native := range []bool{true, false} {
+		t.Run(fmt.Sprintf("native_%t", native), func(t *testing.T) {
+			ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ginCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			ginCtx.Request.Header.Set("User-Agent", "merge-test-client")
+			ginCtx.Set("userApiKey", "test-key")
+			ctx := context.WithValue(context.Background(), "gin", ginCtx)
+			ctx = usage.WithProbeOrigin(ctx, usage.KeepaliveProbeOrigin)
+			ctx = usage.WithAccessProvider(ctx, "config-inline")
+			ctx = usage.WithIsNativeKey(ctx, native)
+
+			reporter := NewUsageReporter(ctx, "claude", "test-model", nil)
+			reporter.SetClaudeSessionID("test-session")
+			reporter.SetRequestMaxTokens(1)
+			detail := usage.Detail{
+				CacheCreation5mTokens: 2,
+				CacheCreation1hTokens: 3,
+				CacheMissReason:       "test-reason",
+				CacheMissedTokens:     5,
+			}
+			record := reporter.buildRecord(detail, false)
+			if record.APIKey != "test-key" || record.AccessProvider != "config-inline" || record.IsNativeKey != native {
+				t.Fatalf("access metadata lost: key=%q provider=%q native=%t", record.APIKey, record.AccessProvider, record.IsNativeKey)
+			}
+			if record.ProbeOrigin != usage.KeepaliveProbeOrigin || record.ClientFingerprint != "merge-test-client" || record.ClaudeSessionID != "test-session" || record.RequestMaxTokens != 1 {
+				t.Fatalf("fork metadata lost: probe=%q client=%q session=%q max_tokens=%d", record.ProbeOrigin, record.ClientFingerprint, record.ClaudeSessionID, record.RequestMaxTokens)
+			}
+			if record.CacheMissReason != detail.CacheMissReason || record.CacheMissedTokens != detail.CacheMissedTokens || record.Detail != detail {
+				t.Fatal("cache accounting or diagnostics lost")
+			}
+		})
 	}
 }
