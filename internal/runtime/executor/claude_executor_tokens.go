@@ -31,6 +31,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
 	from := opts.SourceFormat
+	ctx, req, opts = e.applyNativeToolSearchFallback(ctx, auth, from, e.upstreamModel(baseModel), req, opts)
 	responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
 	to := sdktranslator.FromString("claude")
 
@@ -134,6 +135,7 @@ func (e *ClaudeExecutor) countTokensUpstream(ctx context.Context, auth *cliproxy
 	fp := resolveClaudeFingerprintPolicy(e.cfg, auth, apiKey)
 
 	from := opts.SourceFormat
+	ctx, req, opts = e.applyNativeToolSearchFallback(ctx, auth, from, upstreamModel, req, opts)
 	responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
 	to := sdktranslator.FromString("claude")
 	originalPayload := req.Payload

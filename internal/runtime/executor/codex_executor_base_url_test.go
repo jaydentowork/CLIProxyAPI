@@ -283,3 +283,34 @@ func TestCodexExecutorResolveCodexBaseURL(t *testing.T) {
 		}
 	})
 }
+
+// TestCodexSIWCBaseURLComposition guards the merge seam between upstream's SIWC-aware
+// codexCreds and the fork's resolveCodexBaseURL: a use_siwc credential without its own
+// base_url must still reach the OpenAI SIWC endpoint, never the default Codex origin.
+func TestCodexSIWCBaseURLComposition(t *testing.T) {
+	t.Setenv("CODEX_BASE_URL", "")
+	siwcAuth := &cliproxyauth.Auth{
+		ID:       "codex-siwc-base-url",
+		Provider: "codex",
+		Metadata: map[string]any{
+			"type":         "codex",
+			"access_token": "outer-token",
+			"use_siwc":     true,
+			"siwc":         map[string]any{"access_token": "siwc-token"},
+		},
+	}
+	e := &CodexExecutor{cfg: &config.Config{}}
+
+	_, credBase := codexCreds(siwcAuth)
+	if got := e.resolveCodexBaseURL(siwcAuth, credBase); got != defaultOpenAISIWCBaseURL {
+		t.Fatalf("SIWC effective base URL = %q, want %q", got, defaultOpenAISIWCBaseURL)
+	}
+
+	// An explicit per-credential base URL still wins for SIWC credentials.
+	withBase := siwcAuth.Clone()
+	withBase.Attributes = map[string]string{"base_url": "https://siwc.gateway.example.com"}
+	_, credBaseWithAttr := codexCreds(withBase)
+	if got := e.resolveCodexBaseURL(withBase, credBaseWithAttr); got != "https://siwc.gateway.example.com" {
+		t.Fatalf("SIWC credential base URL not honored: %q", got)
+	}
+}
