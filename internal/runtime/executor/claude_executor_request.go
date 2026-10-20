@@ -1281,26 +1281,38 @@ func applyClaudeHeadersWithNativeProfile(
 
 	stabilizeDeviceProfile := helps.ClaudeDeviceProfileStabilizationEnabled(cfg)
 	var deviceProfile helps.ClaudeDeviceProfile
-	if confirmedClaudeCode {
-		if stabilizeDeviceProfile {
-			var errDeviceProfile error
-			deviceProfile, errDeviceProfile = helps.ResolveClaudeDeviceProfileRequired(r.Context(), auth, apiKey, incomingHeaders, cfg)
-			if errDeviceProfile != nil {
-				return errDeviceProfile
-			}
-		} else {
-			// Learn the confirmed client's profile even with stabilization off, so
-			// the cloaked branch below has a newest-observed value to present.
-			deviceProfile = helps.ResolveClaudeDeviceProfileBestEffort(r.Context(), auth, apiKey, incomingHeaders, cfg)
-		}
-	} else {
-		// nil headers: read the learned profile without letting an unconfirmed
-		// client contribute its own software profile to the credential.
-		deviceProfile = helps.ResolveClaudeDeviceProfileBestEffort(r.Context(), auth, apiKey, nil, cfg)
-	}
 
 	incomingBetas := strings.TrimSpace(strings.Join(helps.HeaderValuesCaseInsensitive(incomingHeaders, "Anthropic-Beta"), ","))
 	countTokens := r.URL != nil && strings.HasSuffix(r.URL.Path, "/count_tokens")
+	if !confirmedClaudeCode && !wirePolicy.Cloak && wirePolicy.ExplicitNever && !wirePolicy.Uncloak {
+		det := helps.DetectClaudeCodeRequest(incomingHeaders, body, countTokens, cfg)
+		if det.ConfirmedShape {
+			confirmedClaudeCode = true
+			helperProfile = helperProfile || (!det.BetasPresent && !countTokens)
+		}
+	}
+	// A cloak_mode: never credential passes a confirmed client's own device headers
+	// through untouched, so no per-credential profile is resolved or learned there.
+	explicitNeverPassthrough := wirePolicy.ExplicitNever && confirmedClaudeCode
+	if !explicitNeverPassthrough {
+		if confirmedClaudeCode {
+			if stabilizeDeviceProfile {
+				var errDeviceProfile error
+				deviceProfile, errDeviceProfile = helps.ResolveClaudeDeviceProfileRequired(r.Context(), auth, apiKey, incomingHeaders, cfg)
+				if errDeviceProfile != nil {
+					return errDeviceProfile
+				}
+			} else {
+				// Learn the confirmed client's profile even with stabilization off, so
+				// the cloaked branch below has a newest-observed value to present.
+				deviceProfile = helps.ResolveClaudeDeviceProfileBestEffort(r.Context(), auth, apiKey, incomingHeaders, cfg)
+			}
+		} else {
+			// nil headers: read the learned profile without letting an unconfirmed
+			// client contribute its own software profile to the credential.
+			deviceProfile = helps.ResolveClaudeDeviceProfileBestEffort(r.Context(), auth, apiKey, nil, cfg)
+		}
+	}
 	requestedMap := claudeRequestedBetas(incomingBetas, extraBetas)
 	advisorNeeded := requestedMap[claudeAdvisorToolBeta] || claudeBodyHasAdvisorTool(body)
 
@@ -1319,17 +1331,19 @@ func applyClaudeHeadersWithNativeProfile(
 		if advisorNeeded {
 			baseBetas = withClaudeAdvisorToolBeta(baseBetas)
 		}
-		// Measured Haiku helper requests already carry the exact credential
-		// beta profile and intentionally omit extended-cache-ttl.
+		// Measured Haiku helper requests already carry their own cache-ttl beta
+		// choice (omitting extended-cache-ttl on 2.1.220/2.1.280 probes/title
+		// helpers), while helpers arriving via ANTHROPIC_BASE_URL still need
+		// oauth-2025-04-20 when CPA authenticates upstream with OAuth.
 		// Native Claude Code subagents and probes also omit extended-cache-ttl.
-		if useOAuthBetas && !helperProfile {
+		if useOAuthBetas {
 			if countTokens {
 				baseBetas = withClaudeCountTokensOAuthBeta(baseBetas)
 			} else {
 				isSubagent := helps.IsClaudeSubagentRequest(incomingHeaders, body)
 				isProbe := helps.IsClaudeProbeOrHelperRequest(body)
 				subagent1h := isSubagent && helps.ClaudeSubagentRequests1h(incomingHeaders, body)
-				includeExtendedCacheTTL := (!isSubagent || subagent1h) && !isProbe
+				includeExtendedCacheTTL := !helperProfile && (!isSubagent || subagent1h) && !isProbe
 				baseBetas = withClaudeOAuthCredentialBetas(baseBetas, includeExtendedCacheTTL)
 			}
 		}
@@ -1649,7 +1663,9 @@ func applyClaudeHeadersWithNativeProfile(
 	// Confirmed Claude Code requests may contribute their real software profile.
 	// Unconfirmed clients always receive the CLI baseline instead of being
 	// allowed to populate or reuse another client's software profile.
-	if stabilizeDeviceProfile {
+	if explicitNeverPassthrough {
+		helps.ApplyClaudeLegacyDeviceHeaders(r, incomingHeaders, nil, true)
+	} else if stabilizeDeviceProfile {
 		// Both branches use deviceProfile: confirmed clients contribute their own
 		// software profile, unconfirmed clients receive the newest one already
 		// learned for this credential (the configured baseline when none exists).

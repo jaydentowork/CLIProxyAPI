@@ -272,6 +272,52 @@ func parseDottedVersion(value string) ([3]int, bool) {
 	return parts, true
 }
 
+func parseClaudeSemver(raw string) (claudeCLIVersion, bool) {
+	parts := strings.Split(strings.TrimSpace(raw), ".")
+	if len(parts) != 3 {
+		return claudeCLIVersion{}, false
+	}
+	major, errMajor := strconv.Atoi(parts[0])
+	if errMajor != nil {
+		return claudeCLIVersion{}, false
+	}
+	minor, errMinor := strconv.Atoi(parts[1])
+	if errMinor != nil {
+		return claudeCLIVersion{}, false
+	}
+	patch, errPatch := strconv.Atoi(parts[2])
+	if errPatch != nil {
+		return claudeCLIVersion{}, false
+	}
+	return claudeCLIVersion{major: major, minor: minor, patch: patch}, true
+}
+
+func plausibleClaudePackageVersion(candidate, baseline string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if !claudePackageVersionPattern.MatchString(candidate) {
+		return false
+	}
+	candVer, okCand := parseClaudeSemver(candidate)
+	baseVer, okBase := parseClaudeSemver(baseline)
+	if !okCand || !okBase {
+		return candidate == strings.TrimSpace(baseline)
+	}
+	return candVer.Compare(baseVer) >= 0
+}
+
+func plausibleClaudeRuntimeVersion(candidate, baseline string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if !claudeRuntimeVersionPattern.MatchString(candidate) {
+		return false
+	}
+	candVer, okCand := parseClaudeSemver(strings.TrimPrefix(candidate, "v"))
+	baseVer, okBase := parseClaudeSemver(strings.TrimPrefix(strings.TrimSpace(baseline), "v"))
+	if !okCand || !okBase {
+		return candidate == strings.TrimSpace(baseline)
+	}
+	return candVer.Compare(baseVer) >= 0
+}
+
 func meetsClaudeDeviceProfileBaseline(candidate, baseline ClaudeDeviceProfile) bool {
 	if candidate.UserAgent == "" || !candidate.hasVersion {
 		return false
