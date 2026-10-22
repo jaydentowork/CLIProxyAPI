@@ -1664,7 +1664,9 @@ func applyClaudeHeadersWithNativeProfile(
 	// Unconfirmed clients always receive the CLI baseline instead of being
 	// allowed to populate or reuse another client's software profile.
 	if explicitNeverPassthrough {
-		helps.ApplyClaudeLegacyDeviceHeaders(r, incomingHeaders, nil, true)
+		// The configured header defaults are the floor and the fallback for any
+		// missing or older caller value; newer confirmed versions pass through.
+		helps.ApplyClaudeLegacyDeviceHeaders(r, incomingHeaders, cfg, true)
 	} else if stabilizeDeviceProfile {
 		// Both branches use deviceProfile: confirmed clients contribute their own
 		// software profile, unconfirmed clients receive the newest one already
