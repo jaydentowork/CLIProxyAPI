@@ -1,10 +1,16 @@
 package executor
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 )
 
 func newClaudeOAuthTestAuth() *cliproxyauth.Auth {
@@ -27,199 +33,57 @@ func newClaudeAPIKeyTestAuth(key, baseURL string) *cliproxyauth.Auth {
 	}
 }
 
-func TestClaudeExecutorResolveClaudeBaseURL(t *testing.T) {
-	oauthAuth := newClaudeOAuthTestAuth()
-	oauthKey := "sk-ant-oat01-valid-oauth-token"
+func TestClaudeCredentialBaseURLIgnoresLegacyEnvironment(t *testing.T) {
+	t.Setenv("CLAUDE_BASE_URL", "https://legacy.example.com")
+	for _, auth := range []*cliproxyauth.Auth{newClaudeOAuthTestAuth(), newClaudeAPIKeyTestAuth("key", "")} {
+		_, baseURL := claudeCreds(auth)
+		if baseURL != "" {
+			t.Fatalf("legacy environment changed credential base URL: %q", baseURL)
+		}
+		auth.Attributes = map[string]string{"base_url": "https://credential.example.com"}
+		_, baseURL = claudeCreds(auth)
+		if baseURL != "https://credential.example.com" {
+			t.Fatalf("credential base URL = %q", baseURL)
+		}
+	}
+}
 
-	// (a) Credential base URL wins over CLAUDE_BASE_URL env and claude-base-url config
-	t.Run("credential base URL wins over env and config", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "https://env.example.com")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example.com",
-				},
-			},
+func TestClaudeExecutorBaseURLSelection(t *testing.T) {
+	t.Setenv("CLAUDE_BASE_URL", "https://legacy.example.com")
+	for _, method := range []string{"execute", "stream", "count_tokens", "count_tokens_upstream"} {
+		for _, baseURL := range []string{"", "  https://api.anthropic.com///  "} {
+			t.Run(method+"/"+baseURL, func(t *testing.T) {
+				var gotURL string
+				transport := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+					gotURL = req.URL.String()
+					return &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"test rejection"}}`)), Request: req}, nil
+				})
+				ctx := context.WithValue(context.Background(), "cliproxy.roundtripper", http.RoundTripper(transport))
+				auth := newClaudeOAuthTestAuth()
+				auth.Metadata["account_uuid"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+				auth.Attributes = map[string]string{"base_url": baseURL}
+				ex := NewClaudeExecutor(&config.Config{})
+				req := cliproxyexecutor.Request{Model: "claude-sonnet-4-5", Payload: []byte(`{"max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`)}
+				opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude}
+				var err error
+				switch method {
+				case "execute":
+					_, err = ex.Execute(ctx, auth, req, opts)
+				case "stream":
+					_, err = ex.ExecuteStream(ctx, auth, req, opts)
+				case "count_tokens":
+					_, err = ex.CountTokens(ctx, auth, req, opts)
+				case "count_tokens_upstream":
+					_, err = ex.countTokensUpstream(ctx, auth, req, opts)
+				}
+				wantURL := "https://api.anthropic.com/v1/messages?beta=true"
+				if strings.HasPrefix(method, "count_tokens") {
+					wantURL = "https://api.anthropic.com/v1/messages/count_tokens?beta=true"
+				}
+				if gotURL != wantURL {
+					t.Fatalf("outbound URL = %q, want %q (error: %v)", gotURL, wantURL, err)
+				}
+			})
 		}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "https://cred.example.com")
-		if got != "https://cred.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://cred.example.com")
-		}
-	})
-
-	// (b) CLAUDE_BASE_URL env wins over claude-base-url config when credential base URL is empty (OAuth)
-	t.Run("env wins over config", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "https://env.example.com")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example.com",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "")
-		if got != "https://env.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://env.example.com")
-		}
-	})
-
-	// (c) claude-base-url config used when env unset and credential empty (OAuth)
-	t.Run("config used when env unset and credential empty", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example.com",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "")
-		if got != "https://cfg.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://cfg.example.com")
-		}
-	})
-
-	// (d) nil cfg + empty everything yields default https://api.anthropic.com
-	t.Run("nil cfg and empty everything yields default", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "")
-		e := &ClaudeExecutor{cfg: nil}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "")
-		if got != "https://api.anthropic.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://api.anthropic.com")
-		}
-	})
-
-	t.Run("empty config and empty everything yields default", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "")
-		if got != "https://api.anthropic.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://api.anthropic.com")
-		}
-	})
-
-	// (e) Whitespace and trailing-slash trimming
-	t.Run("whitespace and trailing slash trimming on credential", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "https://env.example.com")
-		e := &ClaudeExecutor{}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "  https://cred.example.com/  ")
-		if got != "https://cred.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://cred.example.com")
-		}
-	})
-
-	t.Run("whitespace and trailing slash trimming on env", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "  https://env.example.com/  ")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example.com",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "")
-		if got != "https://env.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://env.example.com")
-		}
-	})
-
-	t.Run("whitespace and trailing slash trimming on config", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "  https://cfg.example.com/  ",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "")
-		if got != "https://cfg.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://cfg.example.com")
-		}
-	})
-
-	t.Run("whitespace-only env treated as unset", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "   ")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example.com",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "")
-		if got != "https://cfg.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://cfg.example.com")
-		}
-	})
-
-	// (f) API-key auth with empty base URL and env+config set -> returns default https://api.anthropic.com
-	t.Run("api key credential ignores env and config overrides", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "https://env.example.com")
-		apiKeyAuth := newClaudeAPIKeyTestAuth("sk-ant-api03-test-key", "")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example.com",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(apiKeyAuth, "sk-ant-api03-test-key", "")
-		if got != "https://api.anthropic.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want default %q", got, "https://api.anthropic.com")
-		}
-	})
-
-	// (g) API-key auth WITH per-credential base URL -> returns that credential URL
-	t.Run("api key credential with custom base url preserves it", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "https://env.example.com")
-		apiKeyAuth := newClaudeAPIKeyTestAuth("sk-ant-api03-test-key", "https://custom.gateway.example.com")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example.com",
-				},
-			},
-		}
-		got := e.resolveClaudeBaseURL(apiKeyAuth, "sk-ant-api03-test-key", "https://custom.gateway.example.com")
-		if got != "https://custom.gateway.example.com" {
-			t.Fatalf("resolveClaudeBaseURL() = %q, want %q", got, "https://custom.gateway.example.com")
-		}
-	})
-
-	// Full precedence progression
-	t.Run("full precedence progression", func(t *testing.T) {
-		t.Setenv("CLAUDE_BASE_URL", "")
-		e := &ClaudeExecutor{
-			cfg: &config.Config{
-				SDKConfig: config.SDKConfig{
-					ClaudeBaseURL: "https://cfg.example/",
-				},
-			},
-		}
-		if got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, ""); got != "https://cfg.example" {
-			t.Fatalf("step 1 (config with trailing slash): got %q, want %q", got, "https://cfg.example")
-		}
-
-		t.Setenv("CLAUDE_BASE_URL", "https://env.example")
-		if got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, ""); got != "https://env.example" {
-			t.Fatalf("step 2 (env wins over config): got %q, want %q", got, "https://env.example")
-		}
-
-		if got := e.resolveClaudeBaseURL(oauthAuth, oauthKey, "https://cred.example"); got != "https://cred.example" {
-			t.Fatalf("step 3 (credential wins over env): got %q, want %q", got, "https://cred.example")
-		}
-
-		t.Setenv("CLAUDE_BASE_URL", "")
-		nilExec := &ClaudeExecutor{cfg: nil}
-		if got := nilExec.resolveClaudeBaseURL(oauthAuth, oauthKey, ""); got != "https://api.anthropic.com" {
-			t.Fatalf("step 4 (nil cfg + empty env + empty cred): got %q, want %q", got, "https://api.anthropic.com")
-		}
-	})
+	}
 }

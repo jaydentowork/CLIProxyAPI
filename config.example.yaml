@@ -447,11 +447,6 @@ upstream:
     # When true, return original model IDs in Anthropic model list responses instead of cloaked IDs.
     disable-cloaking-model-list: false
 
-    # Optional global upstream base URL for Claude OAuth credentials that lack a per-credential
-    # base URL. Configured API keys never receive this override. Precedence (most specific wins):
-    #   1. Per-credential base-url  2. CLAUDE_BASE_URL env (OAuth only)  3. this field  4. https://api.anthropic.com
-    # base-url: "http://localhost:8080"
-
     # Agent-aware prompt-cache keepalive.
     #
     # State is visible at GET /v0/management/cache-keepalive and in the log, where
@@ -1180,10 +1175,6 @@ oauth:
 
     # Codex provider behavior.
     codex:
-      # Optional global upstream base URL for Codex OAuth credentials that lack a per-credential
-      # base URL. Configured API keys never receive this override. Precedence (most specific wins):
-      #   1. Per-credential base-url  2. CODEX_BASE_URL env (OAuth only)  3. this field  4. https://chatgpt.com/backend-api/codex
-      # base-url: "http://localhost:8080"
       # Terminate and relay Codex Live WebRTC audio and DataChannel traffic in this process.
       # This requires inbound UDP reachability. Keep disabled to preserve direct media behavior.
       live-media-relay:

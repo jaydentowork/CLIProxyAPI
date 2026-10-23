@@ -21,7 +21,9 @@ import (
 
 func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
 	apiKey, baseURL := claudeCreds(auth)
-	baseURL = e.resolveClaudeBaseURL(auth, apiKey, baseURL)
+	if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
 	// Only Anthropic's first-party origin has the measured native count_tokens
 	// contract. Every custom/third-party base URL keeps local estimation,
 	// regardless of whether the credential is OAuth or an API key.
@@ -137,7 +139,9 @@ func (e *ClaudeExecutor) countTokensUpstream(ctx context.Context, auth *cliproxy
 	upstreamModel := e.upstreamModel(baseModel)
 
 	apiKey, baseURL := claudeCreds(auth)
-	baseURL = e.resolveClaudeBaseURL(auth, apiKey, baseURL)
+	if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
 	url := fmt.Sprintf("%s/v1/messages/count_tokens?beta=true", baseURL)
 	fp := resolveClaudeFingerprintPolicy(e.cfg, auth, apiKey)
 

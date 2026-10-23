@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
@@ -30,7 +31,9 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	upstreamModel := e.upstreamModel(baseModel)
 
 	apiKey, baseURL := claudeCreds(auth)
-	baseURL = e.resolveClaudeBaseURL(auth, apiKey, baseURL)
+	if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
 	url := fmt.Sprintf("%s/v1/messages?beta=true", baseURL)
 	fp := resolveClaudeFingerprintPolicy(e.cfg, auth, apiKey)
 	// Real Claude OAuth always signs CCH. An opted-in API key signs only where

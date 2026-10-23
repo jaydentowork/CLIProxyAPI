@@ -150,26 +150,17 @@ func TestClaudeExecutor_SupportsNativeToolSearch(t *testing.T) {
 	}
 }
 
-func TestClaudeExecutor_NativeToolSearchUsesEffectiveOAuthBaseURL(t *testing.T) {
+func TestClaudeExecutor_NativeToolSearchIgnoresLegacyEnvironment(t *testing.T) {
 	enableClaudeToolSearchForTest(t, true)
+	t.Setenv("CLAUDE_BASE_URL", nativeToolSearchGateway)
+	ex := NewClaudeExecutor(&config.Config{})
 	auth := &cliproxyauth.Auth{Metadata: map[string]any{"access_token": "oauth-token"}}
-	for _, source := range []string{"config", "environment"} {
-		t.Run(source, func(t *testing.T) {
-			t.Setenv("CLAUDE_BASE_URL", "")
-			cfg := &config.Config{}
-			if source == "config" {
-				cfg.ClaudeBaseURL = nativeToolSearchGateway
-			} else {
-				t.Setenv("CLAUDE_BASE_URL", nativeToolSearchGateway)
-			}
-			ex := NewClaudeExecutor(cfg)
-			if ex.SupportsNativeToolSearch(auth, "claude-sonnet-4-5") {
-				t.Fatal("custom OAuth base URL must not advertise native tool search without opt-in")
-			}
-			if !ex.SupportsNativeToolSearch(nativeToolSearchAuth(nil), "claude-sonnet-4-5") {
-				t.Fatal("API-key credentials without a base URL must still target Anthropic")
-			}
-		})
+	if !ex.SupportsNativeToolSearch(auth, "claude-sonnet-4-5") {
+		t.Fatal("legacy environment must not redirect the default Anthropic origin")
+	}
+	auth.Attributes = map[string]string{"base_url": nativeToolSearchGateway}
+	if ex.SupportsNativeToolSearch(auth, "claude-sonnet-4-5") {
+		t.Fatal("credential gateway must not advertise native tool search without opt-in")
 	}
 }
 

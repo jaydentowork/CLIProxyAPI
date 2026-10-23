@@ -935,7 +935,7 @@ func TestV8SecretHashResolvesReferences(t *testing.T) {
 }
 
 func TestV8MigrationMovesForkOnlySettings(t *testing.T) {
-	raw := []byte("claude-base-url: http://claude.local\ncodex-base-url: http://codex.local\nusage-cache-stats: {enabled: true, max-sessions: 7}\n")
+	raw := []byte("usage-cache-stats: {enabled: true, max-sessions: 7}\n")
 	migrated, _, err := NormalizeConfigLayout(raw, true)
 	if err != nil {
 		t.Fatal(err)
@@ -947,17 +947,13 @@ func TestV8MigrationMovesForkOnlySettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ClaudeBaseURL != "http://claude.local" || cfg.CodexBaseURL != "http://codex.local" || !cfg.UsageCacheStats.Enabled || cfg.UsageCacheStats.MaxSessions != 7 {
+	if !cfg.UsageCacheStats.Enabled || cfg.UsageCacheStats.MaxSessions != 7 {
 		t.Fatalf("fork-only settings lost during v8 migration:\n%s", migrated)
-	}
-	// The Claude executor applies ClaudeBaseURL to OAuth credentials only.
-	if api := cfg.ForAPIKey(); api.CodexBaseURL != "" {
-		t.Fatal("v8 OAuth Codex base URL must not apply to API-key credentials")
 	}
 }
 
 func TestV8HistoricalClaudeForkSettingsMoveToUpstream(t *testing.T) {
-	raw := []byte("config-version: 8\noauth: {providers: {claude: {base-url: http://claude.local, claude-code: {cache-keepalive: {enabled: true, max-probes: 3}}}}}\n")
+	raw := []byte("config-version: 8\noauth: {providers: {claude: {claude-code: {cache-keepalive: {enabled: true, max-probes: 3}}}}}\n")
 	migrated, _, err := NormalizeConfigLayout(raw, true)
 	if err != nil {
 		t.Fatal(err)
@@ -969,7 +965,7 @@ func TestV8HistoricalClaudeForkSettingsMoveToUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ClaudeBaseURL != "http://claude.local" || !cfg.ClaudeCode.CacheKeepalive.Enabled || cfg.ClaudeCode.CacheKeepalive.MaxProbes != 3 {
+	if !cfg.ClaudeCode.CacheKeepalive.Enabled || cfg.ClaudeCode.CacheKeepalive.MaxProbes != 3 {
 		t.Fatalf("historical Claude fork settings lost:\n%s", migrated)
 	}
 }

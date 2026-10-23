@@ -1,75 +1,30 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
-func TestParseConfigBytesClaudeBaseURL(t *testing.T) {
-	tests := []struct {
-		name string
-		yaml string
-		want string
-	}{
-		{
-			name: "defaults to empty when omitted",
-			yaml: "port: 8317\n",
-			want: "",
-		},
-		{
-			name: "parses claude-base-url when configured",
-			yaml: "claude-base-url: \"http://127.0.0.1:8080\"\n",
-			want: "http://127.0.0.1:8080",
-		},
-		{
-			name: "parses claude-base-url with trailing slash preserved at config parse",
-			yaml: "claude-base-url: \"https://custom.anthropic.proxy/v1/\"\n",
-			want: "https://custom.anthropic.proxy/v1/",
-		},
+func TestParseConfigBytesIgnoresLegacyGlobalBaseURLs(t *testing.T) {
+	const credentials = "claude-api-key:\n  - api-key: claude-key\n    base-url: https://claude.credential.example\ncodex-api-key:\n  - api-key: codex-key\n    base-url: https://codex.credential.example\n"
+	baseline, err := ParseConfigBytes([]byte(credentials))
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, errParse := ParseConfigBytes([]byte(tt.yaml))
-			if errParse != nil {
-				t.Fatalf("ParseConfigBytes() error = %v", errParse)
-			}
-			if got := cfg.ClaudeBaseURL; got != tt.want {
-				t.Fatalf("ClaudeBaseURL = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestParseConfigBytesCodexBaseURL(t *testing.T) {
-	tests := []struct {
-		name string
-		yaml string
-		want string
-	}{
-		{
-			name: "defaults to empty when omitted",
-			yaml: "port: 8317\n",
-			want: "",
-		},
-		{
-			name: "parses codex-base-url when configured",
-			yaml: "codex-base-url: \"http://127.0.0.1:9090\"\n",
-			want: "http://127.0.0.1:9090",
-		},
-		{
-			name: "parses codex-base-url with trailing slash preserved at config parse",
-			yaml: "codex-base-url: \"https://custom.openai.proxy/backend-api/codex/\"\n",
-			want: "https://custom.openai.proxy/backend-api/codex/",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, errParse := ParseConfigBytes([]byte(tt.yaml))
-			if errParse != nil {
-				t.Fatalf("ParseConfigBytes() error = %v", errParse)
-			}
-			if got := cfg.CodexBaseURL; got != tt.want {
-				t.Fatalf("CodexBaseURL = %q, want %q", got, tt.want)
-			}
-		})
+	for _, legacy := range []string{
+		"claude-base-url: https://legacy.claude.example\ncodex-base-url: https://legacy.codex.example\n",
+		"config-version: 8\nupstream:\n  claude:\n    base-url: https://legacy.claude.example\noauth:\n  providers:\n    codex:\n      base-url: https://legacy.codex.example\n",
+		"config-version: 8\noauth:\n  providers:\n    claude:\n      base-url: https://legacy.claude.example\n",
+	} {
+		cfg, errParse := ParseConfigBytes([]byte(legacy + credentials))
+		if errParse != nil {
+			t.Fatal(errParse)
+		}
+		if !reflect.DeepEqual(cfg, baseline) {
+			t.Fatal("legacy global base URL fields changed parsed config")
+		}
+		if len(cfg.ClaudeKey) != 1 || cfg.ClaudeKey[0].BaseURL != "https://claude.credential.example" || len(cfg.CodexKey) != 1 || cfg.CodexKey[0].BaseURL != "https://codex.credential.example" {
+			t.Fatal("per-credential base URLs were not preserved")
+		}
 	}
 }

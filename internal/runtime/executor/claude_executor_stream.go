@@ -32,7 +32,9 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	upstreamModel := e.upstreamModel(baseModel)
 
 	apiKey, baseURL := claudeCreds(auth)
-	baseURL = e.resolveClaudeBaseURL(auth, apiKey, baseURL)
+	if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
 	url := fmt.Sprintf("%s/v1/messages?beta=true", baseURL)
 	fp := resolveClaudeFingerprintPolicy(e.cfg, auth, apiKey)
 	defer func() {
