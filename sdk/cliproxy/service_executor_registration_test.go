@@ -90,6 +90,7 @@ func TestRegisterAvailableExecutors(t *testing.T) {
 		"kimi-ai",
 		"kimi.ai",
 		"xai",
+		"codebuddy",
 		"openai-compatibility",
 		"plugin-provider",
 	}
@@ -98,6 +99,14 @@ func TestRegisterAvailableExecutors(t *testing.T) {
 		if !ok || resolved == nil {
 			t.Fatalf("expected executor for provider %s after registration", provider)
 		}
+	}
+
+	codeBuddyExecutor, okCodeBuddy := service.coreManager.Executor("codebuddy")
+	if !okCodeBuddy {
+		t.Fatal("expected native codebuddy executor")
+	}
+	if _, isCodeBuddy := codeBuddyExecutor.(*runtimeexecutor.CodeBuddyExecutor); !isCodeBuddy {
+		t.Fatalf("codebuddy executor type = %T, want *executor.CodeBuddyExecutor", codeBuddyExecutor)
 	}
 
 	resolved, _ := service.coreManager.Executor("plugin-provider")

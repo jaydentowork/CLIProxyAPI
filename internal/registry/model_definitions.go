@@ -508,6 +508,7 @@ func cloneModelInfos(models []*ModelInfo) []*ModelInfo {
 //   - xai
 //   - devin
 //   - meta
+//   - codebuddy
 func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 	key := strings.ToLower(strings.TrimSpace(channel))
 	switch key {
@@ -533,6 +534,8 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetDevinModels()
 	case "meta", "muse":
 		return GetMetaModels()
+	case "codebuddy":
+		return GetCodeBuddyModels()
 	default:
 		return nil
 	}
@@ -587,6 +590,7 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 		data.XAI,
 		GetDevinModels(),
 		GetMetaModels(),
+		GetCodeBuddyModels(),
 	}
 	for _, models := range allModels {
 		for _, m := range models {
