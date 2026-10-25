@@ -31,7 +31,6 @@ var nativeProviderAppliers = map[string]ProviderApplier{
 	"kimi.ai":     nil,
 	"kimi.com":    nil,
 	"xai":         nil,
-	"codebuddy":   nil,
 }
 
 // pluginProviderAppliers maps plugin-owned provider names to their implementations.
