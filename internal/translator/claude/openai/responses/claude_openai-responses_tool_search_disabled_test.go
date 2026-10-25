@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -66,7 +67,7 @@ func loadToolSearchGolden(t *testing.T) (toolSearchGoldenFixtures, map[string]to
 		if errRead != nil {
 			t.Fatalf("read %s: %v", name, errRead)
 		}
-		if errUnmarshal := json.Unmarshal(raw, target); errUnmarshal != nil {
+		if errUnmarshal := decodeToolSearchGoldenFixture(raw, target); errUnmarshal != nil {
 			t.Fatalf("decode %s: %v", name, errUnmarshal)
 		}
 	}
@@ -74,6 +75,41 @@ func loadToolSearchGolden(t *testing.T) (toolSearchGoldenFixtures, map[string]to
 		t.Fatalf("golden has %d entries for %d cases", len(golden), len(fixtures.Cases))
 	}
 	return fixtures, golden
+}
+
+// Normalize physical fixture line endings before decoding nested RawMessages.
+// Escaped line endings and other whitespace inside JSON strings stay unchanged.
+func decodeToolSearchGoldenFixture(raw []byte, target any) error {
+	return json.Unmarshal(bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n")), target)
+}
+
+func TestToolSearchGoldenFixtureLineEndings(t *testing.T) {
+	lf := []byte("{\n\"name\":\"line_endings\",\n\"request\":{\n\"tools\":[{\"parameters\":{\"description\":\"a  b\\r\\nc\\nd\",\"type\":\"string\"}}]\n}\n}")
+	var want, got toolSearchGoldenCase
+	if err := decodeToolSearchGoldenFixture(lf, &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := decodeToolSearchGoldenFixture(bytes.ReplaceAll(lf, []byte("\n"), []byte("\r\n")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got.Request, want.Request) {
+		t.Fatalf("physical line endings changed request: %q != %q", got.Request, want.Request)
+	}
+	if text := gjson.GetBytes(got.Request, "tools.0.parameters.description").String(); text != "a  b\r\nc\nd" {
+		t.Fatalf("schema string whitespace changed: %q", text)
+	}
+	for _, changed := range []string{
+		strings.Replace(string(lf), "a  b", "a b", 1),
+		strings.Replace(string(lf), `\r\n`, `\n`, 1),
+		strings.Replace(string(lf), "string", "number", 1),
+	} {
+		if err := decodeToolSearchGoldenFixture([]byte(changed), &got); err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(got.Request, want.Request) {
+			t.Fatal("semantic fixture difference was lost")
+		}
+	}
 }
 
 func TestToolSearchDisabledMatchesDevGolden(t *testing.T) {

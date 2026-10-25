@@ -146,40 +146,27 @@ func (c *dynamicLibraryClient) Call(ctx context.Context, method string, request 
 	if errMethod != nil {
 		return nil, errMethod
 	}
-	var requestPtr uintptr
-	if len(request) > 0 {
-		requestPtr = uintptr(unsafe.Pointer(&request[0]))
-	}
-	responseMem, errAlloc := windows.LocalAlloc(
-		windows.LMEM_FIXED|windows.LMEM_ZEROINIT,
-		uint32(unsafe.Sizeof(windowsBuffer{})),
-	)
-	if errAlloc != nil {
-		return nil, fmt.Errorf("allocate plugin response buffer: %w", errAlloc)
-	}
-	if responseMem == 0 {
-		return nil, fmt.Errorf("allocate plugin response buffer")
-	}
-	defer func() {
-		_, _ = windows.LocalFree(windows.Handle(responseMem))
-	}()
-	response := (*windowsBuffer)(unsafe.Pointer(responseMem))
+	// Pin the output descriptor so reentrant callbacks cannot move it with
+	// a growing Go stack while the plugin still holds its address.
+	response := new(windowsBuffer)
+	var pin runtime.Pinner
+	pin.Pin(response)
+	defer pin.Unpin()
 	rc, _, _ := syscall.SyscallN(
 		c.api.call,
 		uintptr(unsafe.Pointer(methodBytes)),
-		requestPtr,
+		uintptr(unsafe.Pointer(unsafe.SliceData(request))),
 		uintptr(len(request)),
-		responseMem,
+		uintptr(unsafe.Pointer(response)),
 	)
 	runtime.KeepAlive(methodBytes)
 	runtime.KeepAlive(request)
-	var out []byte
-	if response.ptr != 0 && response.len > 0 {
-		out = unsafe.Slice((*byte)(unsafe.Pointer(response.ptr)), response.len)
-		out = append([]byte(nil), out...)
-	}
 	if response.ptr != 0 {
-		_, _, _ = syscall.SyscallN(c.api.freeBuffer, response.ptr, response.len)
+		defer func() { _, _, _ = syscall.SyscallN(c.api.freeBuffer, response.ptr, response.len) }()
+	}
+	out, errRead := windowsReadBuffer(*response)
+	if errRead != nil {
+		return nil, fmt.Errorf("read plugin response: %w", errRead)
 	}
 	if rc != 0 {
 		if isPluginErrorEnvelope(out) {
@@ -228,17 +215,14 @@ func (c *dynamicLibraryClient) close() {
 	}
 }
 
-func windowsHostCall(hostCtx uintptr, methodPtr uintptr, requestPtr uintptr, requestLen uintptr, responsePtr uintptr) uintptr {
-	if responsePtr != 0 {
-		response := (*windowsBuffer)(unsafe.Pointer(responsePtr))
-		response.ptr = 0
-		response.len = 0
+func windowsHostCall(hostCtx *uintptr, methodPtr *byte, requestPtr *byte, requestLen uintptr, response *windowsBuffer) uintptr {
+	if response != nil {
+		*response = windowsBuffer{}
 	}
-	if hostCtx == 0 || methodPtr == 0 {
+	if hostCtx == nil || methodPtr == nil {
 		return 1
 	}
-	id := *(*uintptr)(unsafe.Pointer(hostCtx))
-	rawHost, okHost := windowsHostCallbackEntries.Load(id)
+	rawHost, okHost := windowsHostCallbackEntries.Load(*hostCtx)
 	if !okHost {
 		return 1
 	}
@@ -246,27 +230,23 @@ func windowsHostCall(hostCtx uintptr, methodPtr uintptr, requestPtr uintptr, req
 	if !okHost || entry.host == nil {
 		return 1
 	}
-	var request []byte
-	if requestPtr != 0 && requestLen > 0 {
-		request = unsafe.Slice((*byte)(unsafe.Pointer(requestPtr)), requestLen)
-		request = append([]byte(nil), request...)
+	if requestLen > uintptr(^uint(0)>>1) || (requestPtr == nil && requestLen != 0) {
+		return 1
 	}
+	request := append([]byte(nil), unsafe.Slice(requestPtr, int(requestLen))...)
 	ctx := withHostCallbackIdentity(context.Background(), entry.pluginID, entry.instance)
-	resp, errCall := entry.host.callFromPlugin(ctx, windowsString(methodPtr), request)
+	resp, errCall := entry.host.callFromPlugin(ctx, windows.BytePtrToString(methodPtr), request)
 	if errCall != nil {
 		resp = marshalRPCError("host_call_failed", errCall.Error(), clienterror.HTTPStatusFromError(errCall))
 	}
-	if len(resp) == 0 || responsePtr == 0 {
+	if len(resp) == 0 || response == nil {
 		return 0
 	}
-	mem, errAlloc := windows.LocalAlloc(windows.LMEM_FIXED, uint32(len(resp)))
-	if errAlloc != nil || mem == 0 {
+	buffer, errAlloc := windowsAllocBuffer(resp)
+	if errAlloc != nil {
 		return 1
 	}
-	copy(unsafe.Slice((*byte)(unsafe.Pointer(mem)), len(resp)), resp)
-	response := (*windowsBuffer)(unsafe.Pointer(responsePtr))
-	response.ptr = mem
-	response.len = uintptr(len(resp))
+	*response = buffer
 	return 0
 }
 
@@ -277,17 +257,40 @@ func windowsHostFree(ptr uintptr, len uintptr) uintptr {
 	return 0
 }
 
-func windowsString(ptr uintptr) string {
-	if ptr == 0 {
-		return ""
+// LocalAlloc and plugin buffers expose integer native addresses. Copy through
+// Windows instead of converting those addresses into Go pointers.
+func windowsAllocBuffer(raw []byte) (windowsBuffer, error) {
+	if len(raw) == 0 {
+		return windowsBuffer{}, nil
 	}
-	bytes := make([]byte, 0)
-	for offset := uintptr(0); ; offset++ {
-		b := *(*byte)(unsafe.Pointer(ptr + offset))
-		if b == 0 {
-			break
-		}
-		bytes = append(bytes, b)
+	// LocalAlloc takes a DWORD length even on 64-bit Windows.
+	if uint64(len(raw)) > uint64(^uint32(0)) {
+		return windowsBuffer{}, fmt.Errorf("native buffer exceeds LocalAlloc limit")
 	}
-	return string(bytes)
+	mem, errAlloc := windows.LocalAlloc(windows.LMEM_FIXED, uint32(len(raw)))
+	if errAlloc != nil {
+		return windowsBuffer{}, errAlloc
+	}
+	if mem == 0 {
+		return windowsBuffer{}, fmt.Errorf("allocate native buffer")
+	}
+	if errWrite := windows.WriteProcessMemory(windows.CurrentProcess(), mem, &raw[0], uintptr(len(raw)), nil); errWrite != nil {
+		_, _ = windows.LocalFree(windows.Handle(mem))
+		return windowsBuffer{}, errWrite
+	}
+	return windowsBuffer{ptr: mem, len: uintptr(len(raw))}, nil
+}
+
+func windowsReadBuffer(buffer windowsBuffer) ([]byte, error) {
+	if buffer.len == 0 {
+		return nil, nil
+	}
+	if buffer.ptr == 0 || buffer.len > uintptr(^uint(0)>>1) || buffer.ptr > ^uintptr(0)-(buffer.len-1) {
+		return nil, fmt.Errorf("invalid native buffer range")
+	}
+	out := make([]byte, int(buffer.len))
+	if errRead := windows.ReadProcessMemory(windows.CurrentProcess(), buffer.ptr, &out[0], buffer.len, nil); errRead != nil {
+		return nil, errRead
+	}
+	return out, nil
 }

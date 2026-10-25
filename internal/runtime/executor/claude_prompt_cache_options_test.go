@@ -600,7 +600,7 @@ func TestClaudeExecutor_CountTokens_StripsPromptCacheOptions(t *testing.T) {
 	}
 }
 
-func TestClaudeExecutor_CountTokensUpstream_StripsPromptCacheOptions_EvenWithPayloadRule(t *testing.T) {
+func TestClaudeExecutor_CountTokensUpstream_PromptCacheOptionsPayloadRuleIsLast(t *testing.T) {
 	var seenBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -648,8 +648,39 @@ func TestClaudeExecutor_CountTokensUpstream_StripsPromptCacheOptions_EvenWithPay
 	if len(upstreamResp.Payload) == 0 {
 		t.Fatal("expected non-empty countTokensUpstream payload")
 	}
-	if gjson.GetBytes(seenBody, "prompt_cache_options").Exists() {
-		t.Fatalf("prompt_cache_options should not be forwarded in count_tokens upstream even if injected by payload rule: %s", string(seenBody))
+	if got := gjson.GetBytes(seenBody, "prompt_cache_options.mode").String(); got != "explicit" {
+		t.Fatalf("payload override was changed after finalization: %s", seenBody)
+	}
+}
+
+func TestClaudeExecutor_PromptCacheOptionsPayloadRuleIsLast(t *testing.T) {
+	cfg := &config.Config{Payload: config.PayloadConfig{Override: []config.PayloadRule{{
+		Models: []config.PayloadModelRule{{Name: "*"}},
+		Params: map[string]any{"prompt_cache_options.mode": "explicit"},
+	}}}}
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			body := executeClaudeContextManagementRequest(t, cfg, []byte(`{"model":"claude-opus-5","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`), stream)
+			if got := gjson.GetBytes(body, "prompt_cache_options.mode").String(); got != "explicit" {
+				t.Fatalf("payload override was changed after finalization: %s", body)
+			}
+		})
+	}
+}
+
+func TestClaudeExecutor_CountTokens_PromptCacheCleanupPrecedesPayloadRules(t *testing.T) {
+	cfg := &config.Config{Payload: config.PayloadConfig{Override: []config.PayloadRule{{
+		Models: []config.PayloadModelRule{{Name: "*", Match: []map[string]any{{"prompt_cache_options.mode": "explicit"}}}},
+		Params: map[string]any{"messages": []any{}},
+	}}}}
+	executor := NewClaudeExecutor(cfg)
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "test-key", "base_url": "http://localhost"}}
+	_, err := executor.CountTokens(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "claude-opus-5",
+		Payload: []byte(`{"model":"claude-opus-5","prompt_cache_options":{"mode":"explicit"},"messages":[{"role":"user","content":"hello"}]}`),
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude})
+	if err != nil {
+		t.Fatalf("payload condition observed prompt_cache_options before built-in cleanup: %v", err)
 	}
 }
 
