@@ -1275,6 +1275,8 @@ type statusErr struct {
 	credentialScoped   bool
 	streamTruncated    bool
 	transientRateLimit bool
+	// diagnostic is a content-free detail for logs only; it never reaches clients.
+	diagnostic string
 }
 
 func (e statusErr) Error() string {
@@ -1286,6 +1288,9 @@ func (e statusErr) Error() string {
 func (e statusErr) StatusCode() int            { return e.code }
 func (e statusErr) RetryAfter() *time.Duration { return e.retryAfter }
 func (e statusErr) IsCredentialScoped() bool   { return e.credentialScoped }
+
+// LogDiagnostic lets upstream failure logs explain a sanitized client message.
+func (e statusErr) LogDiagnostic() string { return e.diagnostic }
 
 // IsStreamTruncated marks a locally synthesized failure for an accepted
 // upstream stream that ended without its terminal frame.

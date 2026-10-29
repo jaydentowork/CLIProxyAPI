@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -46,6 +47,9 @@ func TestCodexClientModelsResponseMultiAgentV2FollowsConfig(t *testing.T) {
 			if entry == nil {
 				t.Fatalf("missing synthesized model %q", modelID)
 			}
+			// The synthesized model inherits multi_agent_version from the
+			// catalog's default template; runtime code preserves it when the
+			// opt-in is disabled and rewrites it to "v2" when enabled.
 			value, exists := entry["multi_agent_version"]
 			if tt.enabled {
 				if !exists || value != "v2" {
@@ -53,11 +57,39 @@ func TestCodexClientModelsResponseMultiAgentV2FollowsConfig(t *testing.T) {
 				}
 				return
 			}
-			if !exists || value != nil {
-				t.Fatalf("multi_agent_version = %#v, want preserved null", value)
+			if want := defaultCodexTemplateMultiAgentVersion(t); !exists || value != want {
+				t.Fatalf("multi_agent_version = %#v, want preserved template value %#v", value, want)
 			}
 		})
 	}
+}
+
+// defaultCodexTemplateMultiAgentVersion mirrors the codex client catalog's
+// default template selection (gpt-5.5, else the first entry) and returns its
+// multi_agent_version, which is nil when the template omits it.
+func defaultCodexTemplateMultiAgentVersion(t *testing.T) any {
+	t.Helper()
+	raw, _ := registry.GetCodexClientModelsSnapshot()
+	var payload struct {
+		Models []map[string]any `json:"models"`
+	}
+	if errUnmarshal := json.Unmarshal(raw, &payload); errUnmarshal != nil {
+		t.Fatalf("decode codex client models: %v", errUnmarshal)
+	}
+	var defaultTemplate map[string]any
+	for _, model := range payload.Models {
+		slug, _ := model["slug"].(string)
+		if slug == "" {
+			continue
+		}
+		if defaultTemplate == nil || slug == "gpt-5.5" {
+			defaultTemplate = model
+		}
+	}
+	if defaultTemplate == nil {
+		t.Fatal("codex client models catalog has no default template")
+	}
+	return defaultTemplate["multi_agent_version"]
 }
 
 func TestCodexClientModelsResponseClientVersionFiltering(t *testing.T) {

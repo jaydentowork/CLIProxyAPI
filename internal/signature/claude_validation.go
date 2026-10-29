@@ -692,6 +692,16 @@ var (
 	knownClaudeCAQSBlockKinds = [...]string{"thinking", "narration", "redacted_thinking", "tool_use"}
 )
 
+// isGoogleInfrastructureClaudeCAQS reports whether info is the Google
+// infrastructure CAQS thinking envelope that Antigravity wraps. Its channel_id
+// rotates across Google key/channel generations (e.g. 18 -> 19), so the channel
+// allowlist is not applied to it; native Anthropic CAIS keeps the allowlist.
+func isGoogleInfrastructureClaudeCAQS(info *ClaudeCAISSignatureInfo) bool {
+	return info.EnvelopeVersion >= claudeCAQSMinEnvelopeVersion &&
+		info.Infrastructure != nil && *info.Infrastructure == 2 &&
+		info.BlockKind == "thinking"
+}
+
 type claudeCAISUnknownGenerationError struct {
 	identifier string
 	value      uint64
@@ -1036,7 +1046,7 @@ func inspectClaudeCAISPayload(decoded []byte, rejectDuplicateMessages bool) (*Cl
 		return nil, fmt.Errorf("invalid Claude model-free CAIS signature: container field 5 carrier must not be empty")
 	case !isKnownClaudeCAISIdentifier(knownClaudeCAISEnvelopeVersions[:], info.EnvelopeVersion):
 		return nil, &claudeCAISUnknownGenerationError{identifier: "envelope version", value: info.EnvelopeVersion}
-	case !isKnownClaudeCAISIdentifier(knownClaudeCAISChannelIDs[:], info.ChannelID):
+	case !isGoogleInfrastructureClaudeCAQS(info) && !isKnownClaudeCAISIdentifier(knownClaudeCAISChannelIDs[:], info.ChannelID):
 		return nil, &claudeCAISUnknownGenerationError{identifier: "channel_id", value: info.ChannelID}
 	case info.EnvelopeVersion >= claudeCAQSMinEnvelopeVersion && info.BlockKind != "" && !isKnownClaudeCAQSBlockKind(info.BlockKind):
 		return nil, fmt.Errorf("invalid Claude CAQS signature: expected a known block kind, got %q", info.BlockKind)

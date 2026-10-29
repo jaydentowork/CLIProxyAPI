@@ -122,6 +122,8 @@ func preferredExecutionAttemptError(fallback, upstream error) error {
 func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
 	ctx = cliproxyexecutor.WithRequestProxyURL(ctx, opts.ProxyURL)
 	req, opts = cliproxysession.Enrich(req, opts)
+	ctx = WithCodexClientRequest(ctx, IsCodexClientRequest(ctx, opts.Headers))
+	ctx = coreusage.CaptureIdentity(ctx)
 	normalized := m.normalizeProviders(providers)
 	if len(normalized) == 0 {
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
@@ -182,6 +184,8 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
 	ctx = cliproxyexecutor.WithRequestProxyURL(ctx, opts.ProxyURL)
 	req, opts = cliproxysession.Enrich(req, opts)
+	ctx = WithCodexClientRequest(ctx, IsCodexClientRequest(ctx, opts.Headers))
+	ctx = coreusage.CaptureIdentity(ctx)
 	normalized := m.normalizeProviders(providers)
 	if len(normalized) == 0 {
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
@@ -235,6 +239,8 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
 	ctx = cliproxyexecutor.WithRequestProxyURL(ctx, opts.ProxyURL)
 	req, opts = cliproxysession.Enrich(req, opts)
+	ctx = WithCodexClientRequest(ctx, IsCodexClientRequest(ctx, opts.Headers))
+	ctx = coreusage.CaptureIdentity(ctx)
 	if m.HomeEnabled() {
 		if unlockSession := m.lockHomeWebsocketSession(ctx, opts); unlockSession != nil {
 			defer unlockSession()
@@ -325,7 +331,7 @@ type requestToFormatResolver interface {
 
 func isRequestTerminatedError(err error) bool {
 	var terminated *cliproxyexecutor.RequestTerminatedError
-	return errors.As(err, &terminated) && terminated != nil
+	return (errors.As(err, &terminated) && terminated != nil) || cliproxyexecutor.IsUpstreamWebsocketTurnError(err)
 }
 
 func applyRequestAfterAuthInterceptor(ctx context.Context, executor ProviderExecutor, provider string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, requestedModel string) (cliproxyexecutor.Request, cliproxyexecutor.Options, error) {
@@ -345,8 +351,8 @@ func applyRequestAfterAuthInterceptor(ctx context.Context, executor ProviderExec
 	})
 	opts.Headers = mergeRequestHeaders(opts.Headers, resp.Headers, resp.ClearHeaders)
 	if len(resp.Body) > 0 {
-		req.Payload = bytes.Clone(resp.Body)
-		opts.OriginalRequest = bytes.Clone(resp.Body)
+		req.Payload = resp.Body
+		opts.OriginalRequest = resp.Body
 	}
 	if path := strings.TrimSpace(resp.Path); path != "" {
 		if opts.Metadata == nil {
@@ -1255,7 +1261,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 				}
 				continue
 			}
-			if isRequestInvalidError(errStream) {
+			if isRequestInvalidError(errStream) || cliproxyexecutor.IsUpstreamWebsocketTurnError(errStream) {
 				return nil, errStream
 			}
 			lastErr = errStream

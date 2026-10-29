@@ -16,6 +16,7 @@ func TestModelsMultiAgentClientConfigAndReload(t *testing.T) {
 	for _, source := range []string{"local", "home"} {
 		t.Run(source, func(t *testing.T) {
 			const modelID = "config-multi-agent-synthetic"
+			templateMultiAgentVersion := defaultCodexTemplateMultiAgentVersion(t)
 			const clientID = "config-multi-agent-models"
 			modelRegistry := registry.GetGlobalRegistry()
 			modelRegistry.RegisterClient(clientID, "codex", []*registry.ModelInfo{{ID: modelID}})
@@ -36,6 +37,10 @@ func TestModelsMultiAgentClientConfigAndReload(t *testing.T) {
 				raw  string
 				want bool
 			}{
+				// The synthetic model is synthesized from the catalog's default
+				// template. Runtime code preserves that template's
+				// multi_agent_version unless the opt-in rewrites it to "v2";
+				// tc.want also asserts the published client setting after reload.
 				{"omitted", "{}", false},
 				{"enabled", "client: {codex: {optimize-multi-agent-v2: true}}", true},
 				{"disabled", "client: {codex: {optimize-multi-agent-v2: false}}", false},
@@ -72,7 +77,7 @@ func TestModelsMultiAgentClientConfigAndReload(t *testing.T) {
 						if entry["slug"] != modelID {
 							continue
 						}
-						var want any
+						want := templateMultiAgentVersion
 						if tc.want {
 							want = "v2"
 						}
@@ -86,4 +91,32 @@ func TestModelsMultiAgentClientConfigAndReload(t *testing.T) {
 			}
 		})
 	}
+}
+
+// defaultCodexTemplateMultiAgentVersion mirrors the codex client catalog's
+// default template selection (gpt-5.5, else the first entry) and returns its
+// multi_agent_version, which is nil when the template omits it.
+func defaultCodexTemplateMultiAgentVersion(t *testing.T) any {
+	t.Helper()
+	raw, _ := registry.GetCodexClientModelsSnapshot()
+	var payload struct {
+		Models []map[string]any `json:"models"`
+	}
+	if errUnmarshal := json.Unmarshal(raw, &payload); errUnmarshal != nil {
+		t.Fatalf("decode codex client models: %v", errUnmarshal)
+	}
+	var defaultTemplate map[string]any
+	for _, model := range payload.Models {
+		slug, _ := model["slug"].(string)
+		if slug == "" {
+			continue
+		}
+		if defaultTemplate == nil || slug == "gpt-5.5" {
+			defaultTemplate = model
+		}
+	}
+	if defaultTemplate == nil {
+		t.Fatal("codex client models catalog has no default template")
+	}
+	return defaultTemplate["multi_agent_version"]
 }
