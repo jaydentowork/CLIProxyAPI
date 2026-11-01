@@ -31,7 +31,7 @@ func TestUsagePluginRecordsClaudeSessions(t *testing.T) {
 		OutputTokens:          7,
 		CacheReadTokens:       161937,
 		CacheCreationTokens:   35314,
-		CacheCreation1hTokens: 35314,
+		CacheCreation1hTokens: usage.Int64Ptr(35314),
 		CacheMissReason:       "messages_changed",
 		CacheMissedTokens:     25202,
 	}))

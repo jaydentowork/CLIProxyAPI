@@ -69,8 +69,8 @@ func observationFromRecord(record usage.Record) (Observation, bool) {
 		MaxTokens:             record.RequestMaxTokens,
 		CacheReadTokens:       detail.CacheReadTokens,
 		CacheCreationTokens:   detail.CacheCreationTokens,
-		CacheCreation5mTokens: detail.CacheCreation5mTokens,
-		CacheCreation1hTokens: detail.CacheCreation1hTokens,
+		CacheCreation5mTokens: int64Value(detail.CacheCreation5mTokens),
+		CacheCreation1hTokens: int64Value(detail.CacheCreation1hTokens),
 		CacheMissReason:       missReason,
 		CacheMissedTokens:     missedTokens,
 		IsProbe:               strings.TrimSpace(record.ProbeOrigin) != "",
@@ -128,6 +128,13 @@ func providerLabel(record usage.Record) string {
 		return provider
 	}
 	return strings.TrimSpace(record.ExecutorType)
+}
+
+func int64Value(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // RegisterUsagePlugin installs the hook on the default usage manager. Calling it

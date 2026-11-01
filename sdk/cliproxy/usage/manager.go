@@ -111,7 +111,7 @@ type Failure struct {
 	Code string
 }
 
-// Detail holds the token usage breakdown.
+// Detail holds the token and structured usage breakdown captured from an upstream response.
 type Detail struct {
 	InputTokens         int64
 	OutputTokens        int64
@@ -119,20 +119,42 @@ type Detail struct {
 	CachedTokens        int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
-	// CacheCreation5mTokens and CacheCreation1hTokens split CacheCreationTokens
-	// across the two Anthropic cache pools
-	// (usage.cache_creation.ephemeral_5m_input_tokens / ephemeral_1h_input_tokens).
-	// Both stay zero for providers that report no pool breakdown.
-	CacheCreation5mTokens int64
-	CacheCreation1hTokens int64
-	TotalTokens           int64
-	TokenBreakdown        TokenBreakdown
-	ResponseServiceTier   string
+	TotalTokens         int64
+	TokenBreakdown      TokenBreakdown
+	ResponseServiceTier string
 	// CacheMissReason is diagnostics.cache_miss_reason.type from the upstream
 	// response. Anthropic returns it only while the cache-diagnosis beta is on.
 	CacheMissReason string
 	// CacheMissedTokens is diagnostics.cache_miss_reason.cache_missed_input_tokens.
 	CacheMissedTokens int64
+
+	CacheCreation5mTokens    *int64
+	CacheCreation30mTokens   *int64
+	CacheCreation1hTokens    *int64
+	CacheCreation12hTokens   *int64
+	TextInputTokens          *int64
+	ImageInputTokens         *int64
+	AudioInputTokens         *int64
+	VideoInputTokens         *int64
+	FileInputTokens          *int64
+	CachedTextTokens         *int64
+	TextOutputTokens         *int64
+	ImageOutputTokens        *int64
+	AudioOutputTokens        *int64
+	AcceptedPredictionTokens *int64
+	RejectedPredictionTokens *int64
+	CacheDetails             *CacheDetails
+	WebSearchRequests        *int64
+	ImageCount               *int64
+	RequestedImageDetails    *ImageDetails
+	ImageDetails             *ImageDetails
+	MediaCounts              *MediaCounts
+	ToolUsageDetails         *ToolUsageDetails
+	Iterations               *[]IterationUsage
+	CostDetails              *CostDetails
+	Speed                    string
+	InferenceGeo             string
+	UpstreamServiceTier      string
 }
 
 type requestedModelAliasContextKey struct{}

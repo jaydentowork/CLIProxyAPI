@@ -4348,7 +4348,12 @@
         "min": 1024,
         "max": 64000,
         "zero_allowed": true,
-        "dynamic_allowed": true
+        "dynamic_allowed": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "supportedInputModalities": [
         "text",
@@ -4372,7 +4377,12 @@
         "min": 1024,
         "max": 64000,
         "zero_allowed": true,
-        "dynamic_allowed": true
+        "dynamic_allowed": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "supportedInputModalities": [
         "text",

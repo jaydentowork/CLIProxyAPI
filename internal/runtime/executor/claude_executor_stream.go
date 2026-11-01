@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -355,16 +356,25 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		defer streamUsage.Publish(ctx, reporter)
 		emitCancellation := func(cause error) bool {
 			cancelErr := newClaudeOAuthCancellationError(ctx, fp.OAuthCancellation, cause)
-			if cancelErr == nil {
-				return false
+			if cancelErr != nil {
+				helps.RecordAPIResponseError(ctx, e.cfg, cancelErr)
+				streamUsage.PublishFailure(ctx, reporter, cancelErr)
+				select {
+				case out <- cliproxyexecutor.StreamChunk{Err: cancelErr}:
+				default:
+				}
+				return true
 			}
-			helps.RecordAPIResponseError(ctx, e.cfg, cancelErr)
-			streamUsage.PublishFailure(ctx, reporter, cancelErr)
-			select {
-			case out <- cliproxyexecutor.StreamChunk{Err: cancelErr}:
-			default:
+			c := cause
+			if ctx != nil && ctx.Err() != nil {
+				c = ctx.Err()
 			}
-			return true
+			if errors.Is(c, context.Canceled) {
+				helps.RecordAPIResponseError(ctx, e.cfg, c)
+				streamUsage.PublishFailure(ctx, reporter, c)
+				return true
+			}
+			return false
 		}
 		emitResponseError := func(errResponse error) {
 			errResponse = wrapClaudeFastRequestError(fastRequest, httpResp.StatusCode, errResponse)
@@ -384,12 +394,12 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			var upstreamMessageID string
 			var upstreamStreamErr error
 			upstreamCompleted := false
-			var cacheAnnotation helps.ClaudeCacheAnnotation
 			flushEvent := func() bool {
 				if event.Len() == 0 {
 					return true
 				}
 				observeClaudeSSEEvent(event.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+				streamUsage.ObserveClaudeSSEEvent(event.Bytes())
 				cloned := bytes.Clone(event.Bytes())
 				event.Reset()
 				select {
@@ -403,12 +413,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				line := scanner.Bytes()
 				helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 				reporter.ObserveResponseModel(line)
-				if annotation, ok := helps.ParseClaudeCacheAnnotation(line); ok {
-					cacheAnnotation = annotation
-				}
-				if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
-					helps.ObserveMergedStreamUsage(&streamUsage, cacheAnnotation.Apply(detail))
-				}
+				streamUsage.ObserveClaudeStream(line)
 				restoredLine, errRestore := restoreClaudeOAuthToolNamesFromStreamLine(line, oauthToolNamesReverseMap)
 				if errRestore != nil {
 					emitResponseError(fmt.Errorf("restore Claude OAuth tool name from streaming response: %w", errRestore))
@@ -469,23 +474,18 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		var upstreamStreamErr error
 		var eventBuf bytes.Buffer
 		upstreamCompleted := false
-		var cacheAnnotation helps.ClaudeCacheAnnotation
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			eventBuf.Write(line)
 			eventBuf.WriteByte('\n')
 			if len(bytes.TrimSpace(line)) == 0 {
 				observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+				streamUsage.ObserveClaudeSSEEvent(eventBuf.Bytes())
 				eventBuf.Reset()
 			}
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 			reporter.ObserveResponseModel(line)
-			if annotation, ok := helps.ParseClaudeCacheAnnotation(line); ok {
-				cacheAnnotation = annotation
-			}
-			if detail, ok := helps.ParseClaudeStreamUsage(line); ok {
-				helps.ObserveMergedStreamUsage(&streamUsage, cacheAnnotation.Apply(detail))
-			}
+			streamUsage.ObserveClaudeStream(line)
 			restoredLine, errRestore := restoreClaudeOAuthToolNamesFromStreamLine(line, oauthToolNamesReverseMap)
 			if errRestore != nil {
 				emitResponseError(fmt.Errorf("restore Claude OAuth tool name from streaming response: %w", errRestore))
@@ -513,7 +513,14 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: chunks[i]}:
 				case <-ctx.Done():
-					emitCancellation(ctx.Err())
+					if eventBuf.Len() > 0 {
+						observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+						streamUsage.ObserveClaudeSSEEvent(eventBuf.Bytes())
+						eventBuf.Reset()
+					}
+					if !upstreamCompleted {
+						emitCancellation(ctx.Err())
+					}
 					return
 				}
 			}
@@ -526,6 +533,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		}
 		if eventBuf.Len() > 0 {
 			observeClaudeSSEEvent(eventBuf.Bytes(), &upstreamMessageID, &upstreamCompleted, &upstreamStreamErr)
+			streamUsage.ObserveClaudeSSEEvent(eventBuf.Bytes())
 			eventBuf.Reset()
 		}
 		if helps.EndApplyPatchStream(ctx, param, reporter, out, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}) {

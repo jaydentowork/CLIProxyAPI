@@ -29,11 +29,11 @@ func TestParseClaudeUsageSplitsCacheCreationAndMissReason(t *testing.T) {
 	if detail.CacheCreationTokens != 35314 {
 		t.Errorf("CacheCreationTokens = %d, want 35314", detail.CacheCreationTokens)
 	}
-	if detail.CacheCreation5mTokens != 0 {
-		t.Errorf("CacheCreation5mTokens = %d, want 0", detail.CacheCreation5mTokens)
+	if detail.CacheCreation5mTokens == nil || *detail.CacheCreation5mTokens != 0 {
+		t.Errorf("CacheCreation5mTokens = %v, want explicit 0", detail.CacheCreation5mTokens)
 	}
-	if detail.CacheCreation1hTokens != 35314 {
-		t.Errorf("CacheCreation1hTokens = %d, want 35314", detail.CacheCreation1hTokens)
+	if detail.CacheCreation1hTokens == nil || *detail.CacheCreation1hTokens != 35314 {
+		t.Errorf("CacheCreation1hTokens = %v, want 35314", detail.CacheCreation1hTokens)
 	}
 	if detail.CacheMissReason != "messages_changed" {
 		t.Errorf("CacheMissReason = %q, want messages_changed", detail.CacheMissReason)
@@ -46,95 +46,40 @@ func TestParseClaudeUsageSplitsCacheCreationAndMissReason(t *testing.T) {
 	}
 }
 
-func TestParseClaudeCacheAnnotationFromMessageStart(t *testing.T) {
-	annotation, ok := ParseClaudeCacheAnnotation([]byte(messageStartLine))
+func TestParseClaudeStreamUsageReadsMessageStartDiagnostics(t *testing.T) {
+	detail, ok := ParseClaudeStreamUsage([]byte(messageStartLine))
 	if !ok {
-		t.Fatal("ParseClaudeCacheAnnotation(message_start) returned false")
+		t.Fatal("ParseClaudeStreamUsage(message_start) returned false")
 	}
-	if annotation.CacheCreation1hTokens != 197015 {
-		t.Errorf("CacheCreation1hTokens = %d, want 197015", annotation.CacheCreation1hTokens)
+	if detail.CacheCreation1hTokens == nil || *detail.CacheCreation1hTokens != 197015 {
+		t.Errorf("CacheCreation1hTokens = %v, want 197015", detail.CacheCreation1hTokens)
 	}
-	if annotation.CacheCreation5mTokens != 0 {
-		t.Errorf("CacheCreation5mTokens = %d, want 0", annotation.CacheCreation5mTokens)
-	}
-	if annotation.CacheMissReason != "tools_changed" {
-		t.Errorf("CacheMissReason = %q, want tools_changed", annotation.CacheMissReason)
-	}
-	if annotation.CacheMissedTokens != 90151 {
-		t.Errorf("CacheMissedTokens = %d, want 90151", annotation.CacheMissedTokens)
-	}
-}
-
-func TestParseClaudeCacheAnnotationIgnoresOtherEvents(t *testing.T) {
-	if _, ok := ParseClaudeCacheAnnotation([]byte(messageDeltaLine)); ok {
-		t.Error("message_delta must not produce a cache annotation")
-	}
-	if _, ok := ParseClaudeCacheAnnotation([]byte("event: ping")); ok {
-		t.Error("a non-JSON SSE line must not produce a cache annotation")
-	}
-}
-
-func TestClaudeCacheAnnotationApplyFillsOnlyMissingFields(t *testing.T) {
-	annotation, ok := ParseClaudeCacheAnnotation([]byte(messageStartLine))
-	if !ok {
-		t.Fatal("ParseClaudeCacheAnnotation(message_start) returned false")
+	if detail.CacheMissReason != "tools_changed" || detail.CacheMissedTokens != 90151 {
+		t.Errorf("diagnostics = %q/%d, want tools_changed/90151", detail.CacheMissReason, detail.CacheMissedTokens)
 	}
 
-	// message_delta carries the authoritative totals but drops the pool split
-	// and the diagnostics object; the annotation supplies both.
-	detail, ok := ParseClaudeStreamUsage([]byte(messageDeltaLine))
+	delta, ok := ParseClaudeStreamUsage([]byte(messageDeltaLine))
 	if !ok {
 		t.Fatal("ParseClaudeStreamUsage(message_delta) returned false")
 	}
-	merged := annotation.Apply(detail)
-
-	if merged.OutputTokens != 4 {
-		t.Errorf("OutputTokens = %d, want the message_delta value 4", merged.OutputTokens)
-	}
-	if merged.CacheCreation1hTokens != 197015 {
-		t.Errorf("CacheCreation1hTokens = %d, want 197015", merged.CacheCreation1hTokens)
-	}
-	if merged.CacheMissReason != "tools_changed" {
-		t.Errorf("CacheMissReason = %q, want tools_changed", merged.CacheMissReason)
-	}
-	if merged.CacheMissedTokens != 90151 {
-		t.Errorf("CacheMissedTokens = %d, want 90151", merged.CacheMissedTokens)
-	}
-
-	// An already-populated split must win over the annotation.
-	detail.CacheCreation5mTokens = 11
-	detail.CacheCreation1hTokens = 22
-	detail.CacheMissReason = "already_set"
-	kept := annotation.Apply(detail)
-	if kept.CacheCreation5mTokens != 11 || kept.CacheCreation1hTokens != 22 {
-		t.Errorf("Apply overwrote an existing split: %d/%d", kept.CacheCreation5mTokens, kept.CacheCreation1hTokens)
-	}
-	if kept.CacheMissReason != "already_set" {
-		t.Errorf("Apply overwrote an existing miss reason: %q", kept.CacheMissReason)
+	if delta.CacheMissReason != "" {
+		t.Errorf("message_delta must not carry diagnostics, got %q", delta.CacheMissReason)
 	}
 }
 
 func TestClaudeStreamUsageMergesInitialUsageAndCacheDiagnostics(t *testing.T) {
 	var buffer StreamUsageBuffer
-	var annotation ClaudeCacheAnnotation
 	for _, line := range []string{
 		messageStartLine,
 		`data: {"type":"message_delta","usage":{"output_tokens":12}}`,
 	} {
-		if parsed, ok := ParseClaudeCacheAnnotation([]byte(line)); ok {
-			annotation = parsed
-		}
-		detail, ok := ParseClaudeStreamUsage([]byte(line))
-		if !ok {
-			t.Fatalf("expected usage from %s", line)
-		}
-		ObserveMergedStreamUsage(&buffer, annotation.Apply(detail))
+		buffer.ObserveClaudeStream([]byte(line))
 	}
 	detail, ok := buffer.Detail()
 	if !ok || detail.InputTokens != 2 || detail.OutputTokens != 12 || detail.TotalTokens != 197029 {
 		t.Fatalf("expected initial input and final output usage, got %+v (ok=%v)", detail, ok)
 	}
-	if detail.CacheCreationTokens != 197015 || detail.CacheCreation1hTokens != 197015 {
+	if detail.CacheCreationTokens != 197015 || detail.CacheCreation1hTokens == nil || *detail.CacheCreation1hTokens != 197015 {
 		t.Errorf("cache creation totals and split were not preserved: %+v", detail)
 	}
 	if detail.CacheMissReason != "tools_changed" || detail.CacheMissedTokens != 90151 {
@@ -165,8 +110,8 @@ func TestParseOpenAIUsageReportsCachedTokensAsCacheRead(t *testing.T) {
 	if detail.CacheCreationTokens != 0 {
 		t.Errorf("CacheCreationTokens = %d, want 0: OpenAI reports no cache creation", detail.CacheCreationTokens)
 	}
-	if detail.CacheCreation5mTokens != 0 || detail.CacheCreation1hTokens != 0 {
-		t.Errorf("OpenAI must report no pool split, got %d/%d", detail.CacheCreation5mTokens, detail.CacheCreation1hTokens)
+	if detail.CacheCreation5mTokens != nil || detail.CacheCreation1hTokens != nil {
+		t.Errorf("OpenAI must report no pool split, got %v/%v", detail.CacheCreation5mTokens, detail.CacheCreation1hTokens)
 	}
 	if detail.CacheMissReason != "" {
 		t.Errorf("CacheMissReason = %q, want empty", detail.CacheMissReason)
@@ -193,8 +138,8 @@ func TestParseGeminiUsageReportsCachedContentAsCacheRead(t *testing.T) {
 	if detail.CacheCreationTokens != 0 {
 		t.Errorf("CacheCreationTokens = %d, want 0: Gemini reports no cache creation", detail.CacheCreationTokens)
 	}
-	if detail.CacheCreation5mTokens != 0 || detail.CacheCreation1hTokens != 0 {
-		t.Errorf("Gemini must report no pool split, got %d/%d", detail.CacheCreation5mTokens, detail.CacheCreation1hTokens)
+	if detail.CacheCreation5mTokens != nil || detail.CacheCreation1hTokens != nil {
+		t.Errorf("Gemini must report no pool split, got %v/%v", detail.CacheCreation5mTokens, detail.CacheCreation1hTokens)
 	}
 	// cachedContentTokenCount is part of promptTokenCount.
 	if got := detail.TokenBreakdown.Input.TotalTokens; got != 5000 {
