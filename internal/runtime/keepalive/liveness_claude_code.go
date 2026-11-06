@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 )
 
 // DefaultTaskOutputDirs is where Claude Code records one file per background
@@ -160,7 +160,7 @@ func (l *ClaudeCodeTasksLiveness) hasRunningTaskState(sessionID string) bool {
 				if errRead != nil {
 					continue
 				}
-				status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(data, "status").String()))
+				status := strings.ToLower(strings.TrimSpace(ojson.GetBytes(data, "status").String()))
 				if status == "" {
 					continue
 				}

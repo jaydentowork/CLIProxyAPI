@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/MoeForge/moego/ojson"
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/keepalive"
@@ -16,7 +17,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 )
 
 // cacheKeepaliveProbeProvider is the auth provider a Claude Code keepalive probe
@@ -57,7 +57,7 @@ func (p cacheKeepaliveProber) Probe(ctx context.Context, probe keepalive.ProbeRe
 	if err != nil {
 		return keepalive.ProbeResult{}, err
 	}
-	usageNode := gjson.GetBytes(resp.Payload, "usage")
+	usageNode := ojson.GetBytes(resp.Payload, "usage")
 	reason, missedTokens := helps.ExtractClaudeCacheMissReason(resp.Payload)
 	return keepalive.ProbeResult{
 		CacheReadInputTokens:     usageNode.Get("cache_read_input_tokens").Int(),

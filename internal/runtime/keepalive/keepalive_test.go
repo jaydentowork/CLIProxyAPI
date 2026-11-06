@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 var errProbeTest = errors.New("upstream refused the probe")
@@ -385,13 +385,13 @@ func TestProbeBodyPreservesCacheControlBetasAndPrefix(t *testing.T) {
 	probe := calls[0]
 	body := probe.Body
 
-	if got := gjson.GetBytes(body, "max_tokens").Int(); got != 1 {
+	if got := ojson.GetBytes(body, "max_tokens").Int(); got != 1 {
 		t.Fatalf("max_tokens = %d, want 1", got)
 	}
-	if got := gjson.GetBytes(body, "stream"); !got.Exists() || got.Bool() {
+	if got := ojson.GetBytes(body, "stream"); !got.Exists() || got.Bool() {
 		t.Fatalf("stream = %v, want false", got.Raw)
 	}
-	if gjson.GetBytes(body, "thinking").Exists() {
+	if ojson.GetBytes(body, "thinking").Exists() {
 		t.Fatalf("thinking survived into the probe body")
 	}
 	for _, path := range []string{
@@ -399,17 +399,17 @@ func TestProbeBodyPreservesCacheControlBetasAndPrefix(t *testing.T) {
 		"tools.0.cache_control.ttl",
 		"messages.0.content.0.cache_control.ttl",
 	} {
-		if got := gjson.GetBytes(body, path).String(); got != "1h" {
+		if got := ojson.GetBytes(body, path).String(); got != "1h" {
 			t.Fatalf("%s = %q, want 1h", path, got)
 		}
 	}
-	if got := gjson.GetBytes(body, "system.0.text").String(); got != "sys" {
+	if got := ojson.GetBytes(body, "system.0.text").String(); got != "sys" {
 		t.Fatalf("system text rewritten: %q", got)
 	}
-	if got := gjson.GetBytes(body, "messages.0.content.0.text").String(); got != "hi" {
+	if got := ojson.GetBytes(body, "messages.0.content.0.text").String(); got != "hi" {
 		t.Fatalf("message text rewritten: %q", got)
 	}
-	if got := gjson.GetBytes(body, "metadata.user_id").String(); got == "" {
+	if got := ojson.GetBytes(body, "metadata.user_id").String(); got == "" {
 		t.Fatalf("metadata.user_id dropped from the probe body")
 	}
 	if got := probe.Headers.Get("Anthropic-Beta"); got != "claude-code-20250219,extended-cache-ttl-2025-04-11" {
@@ -810,12 +810,12 @@ func TestProbeBodyDropsThinkingDependentContextManagement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProbeBody() error = %v", err)
 	}
-	if gjson.GetBytes(probe, "thinking").Exists() {
+	if ojson.GetBytes(probe, "thinking").Exists() {
 		t.Fatalf("thinking survived into the probe body")
 	}
 	// The upstream rejects clear_thinking_20251015 outright when thinking is
 	// absent, so the strategy must go with it.
-	if gjson.GetBytes(probe, "context_management").Exists() {
+	if ojson.GetBytes(probe, "context_management").Exists() {
 		t.Fatalf("context_management survived with only a thinking-dependent edit: %s", probe)
 	}
 }
@@ -829,7 +829,7 @@ func TestProbeBodyKeepsOtherContextManagementEdits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProbeBody() error = %v", err)
 	}
-	edits := gjson.GetBytes(probe, "context_management.edits")
+	edits := ojson.GetBytes(probe, "context_management.edits")
 	if !edits.IsArray() || len(edits.Array()) != 1 {
 		t.Fatalf("edits = %s, want only the non-thinking edit", edits.Raw)
 	}
@@ -847,7 +847,7 @@ func TestProbeBodyLeavesContextManagementAloneWhenNoThinkingEdit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProbeBody() error = %v", err)
 	}
-	if got := gjson.GetBytes(probe, "context_management.edits.0.type").String(); got != "clear_tool_uses_20250919" {
+	if got := ojson.GetBytes(probe, "context_management.edits.0.type").String(); got != "clear_tool_uses_20250919" {
 		t.Fatalf("context_management was rewritten: %s", probe)
 	}
 }

@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 // claudeCacheDiagnosticsFromRoot reads the diagnostics.cache_miss_reason object
 // a Claude body (or message_start message) carries beside its usage node.
-func claudeCacheDiagnosticsFromRoot(root gjson.Result) (string, int64) {
+func claudeCacheDiagnosticsFromRoot(root ojson.Result) (string, int64) {
 	reason := root.Get("diagnostics.cache_miss_reason")
 	if !reason.Exists() {
 		return "", 0
@@ -23,8 +23,8 @@ func ExtractClaudeCacheMissReason(payload []byte) (string, int64) {
 	if len(payload) == 0 {
 		return "", 0
 	}
-	if gjson.ValidBytes(payload) {
-		root := gjson.ParseBytes(payload)
+	if ojson.ValidBytes(payload) {
+		root := ojson.ParseBytes(payload)
 		// Non-streaming: diagnostics sits beside usage at the top level.
 		if reason, tokens := claudeCacheDiagnosticsFromRoot(root); reason != "" || tokens != 0 {
 			return reason, tokens
@@ -42,10 +42,10 @@ func ExtractClaudeCacheMissReason(payload []byte) (string, int64) {
 			continue
 		}
 		event := bytes.TrimSpace(line[len("data:"):])
-		if len(event) == 0 || !gjson.ValidBytes(event) {
+		if len(event) == 0 || !ojson.ValidBytes(event) {
 			continue
 		}
-		root := gjson.ParseBytes(event)
+		root := ojson.ParseBytes(event)
 		if root.Get("type").String() != "message_start" {
 			continue
 		}
@@ -65,7 +65,7 @@ func RequestMaxTokens(payloads ...[]byte) int64 {
 			continue
 		}
 		for _, field := range []string{"max_tokens", "max_output_tokens", "max_completion_tokens"} {
-			if node := gjson.GetBytes(payload, field); node.Exists() {
+			if node := ojson.GetBytes(payload, field); node.Exists() {
 				if value := node.Int(); value > 0 {
 					return value
 				}

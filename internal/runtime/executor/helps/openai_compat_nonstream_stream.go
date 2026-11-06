@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // ShouldForceNonStreamToolCalls reports whether a streaming request must be sent
@@ -24,7 +23,7 @@ func ShouldForceNonStreamToolCalls(compat *config.OpenAICompatibility, payload [
 	if compat == nil || !compat.NonStreamToolCalls {
 		return false
 	}
-	tools := gjson.GetBytes(payload, "tools")
+	tools := ojson.GetBytes(payload, "tools")
 	return tools.Exists() && tools.IsArray() && len(tools.Array()) > 0
 }
 
@@ -37,10 +36,10 @@ func SynthesizeOpenAIStreamFrames(body []byte) []string {
 	if len(body) == 0 {
 		return nil
 	}
-	if !gjson.ValidBytes(body) {
+	if !ojson.ValidBytes(body) {
 		return nil
 	}
-	root := gjson.ParseBytes(body)
+	root := ojson.ParseBytes(body)
 	choices := root.Get("choices")
 	if !choices.Exists() || !choices.IsArray() || len(choices.Array()) == 0 {
 		return nil
@@ -62,72 +61,72 @@ func SynthesizeOpenAIStreamFrames(body []byte) []string {
 	usage := root.Get("usage")
 
 	frames := make([]string, 0, 8)
-	emit := func(index int64, delta string, finishReason, logprobs gjson.Result, withUsage bool) {
+	emit := func(index int64, delta string, finishReason, logprobs ojson.Result, withUsage bool) {
 		frame := []byte(`{"object":"chat.completion.chunk","choices":[{"index":0,"delta":{}}]}`)
-		frame, _ = sjson.SetBytes(frame, "id", id)
-		frame, _ = sjson.SetBytes(frame, "model", model)
-		frame, _ = sjson.SetBytes(frame, "created", created)
-		if serviceTier.Exists() && serviceTier.Type != gjson.Null {
-			frame, _ = sjson.SetRawBytes(frame, "service_tier", []byte(serviceTier.Raw))
+		frame, _ = ojson.SetBytes(frame, "id", id)
+		frame, _ = ojson.SetBytes(frame, "model", model)
+		frame, _ = ojson.SetBytes(frame, "created", created)
+		if serviceTier.Exists() && serviceTier.Type != ojson.Null {
+			frame, _ = ojson.SetRawBytes(frame, "service_tier", []byte(serviceTier.Raw))
 		}
-		if systemFingerprint.Exists() && systemFingerprint.Type != gjson.Null {
-			frame, _ = sjson.SetRawBytes(frame, "system_fingerprint", []byte(systemFingerprint.Raw))
+		if systemFingerprint.Exists() && systemFingerprint.Type != ojson.Null {
+			frame, _ = ojson.SetRawBytes(frame, "system_fingerprint", []byte(systemFingerprint.Raw))
 		}
-		frame, _ = sjson.SetBytes(frame, "choices.0.index", index)
+		frame, _ = ojson.SetBytes(frame, "choices.0.index", index)
 		if delta != "" {
-			frame, _ = sjson.SetRawBytes(frame, "choices.0.delta", []byte(delta))
+			frame, _ = ojson.SetRawBytes(frame, "choices.0.delta", []byte(delta))
 		}
 		if finishReason.Exists() && finishReason.String() != "" {
-			frame, _ = sjson.SetBytes(frame, "choices.0.finish_reason", finishReason.String())
+			frame, _ = ojson.SetBytes(frame, "choices.0.finish_reason", finishReason.String())
 		} else {
-			frame, _ = sjson.SetRawBytes(frame, "choices.0.finish_reason", []byte("null"))
+			frame, _ = ojson.SetRawBytes(frame, "choices.0.finish_reason", []byte("null"))
 		}
-		if logprobs.Exists() && logprobs.Type != gjson.Null {
-			frame, _ = sjson.SetRawBytes(frame, "choices.0.logprobs", []byte(logprobs.Raw))
+		if logprobs.Exists() && logprobs.Type != ojson.Null {
+			frame, _ = ojson.SetRawBytes(frame, "choices.0.logprobs", []byte(logprobs.Raw))
 		}
 		if withUsage && usage.Exists() {
-			frame, _ = sjson.SetRawBytes(frame, "usage", []byte(usage.Raw))
+			frame, _ = ojson.SetRawBytes(frame, "usage", []byte(usage.Raw))
 		}
 		frames = append(frames, string(frame))
 	}
 
-	choices.ForEach(func(position, choice gjson.Result) bool {
+	choices.ForEach(func(position, choice ojson.Result) bool {
 		index := choice.Get("index").Int()
 		message := choice.Get("message")
 		finishReason := choice.Get("finish_reason")
 		logprobs := choice.Get("logprobs")
 
-		emit(index, `{"role":"assistant"}`, gjson.Result{}, gjson.Result{}, false)
+		emit(index, `{"role":"assistant"}`, ojson.Result{}, ojson.Result{}, false)
 
 		if reasoning := message.Get("reasoning_content"); reasoning.Exists() && reasoning.String() != "" {
-			emit(index, fmt.Sprintf(`{"reasoning_content":%s}`, reasoning.Raw), gjson.Result{}, gjson.Result{}, false)
+			emit(index, fmt.Sprintf(`{"reasoning_content":%s}`, reasoning.Raw), ojson.Result{}, ojson.Result{}, false)
 		} else if reasoning = message.Get("reasoning"); reasoning.Exists() && reasoning.String() != "" {
-			emit(index, fmt.Sprintf(`{"reasoning":%s}`, reasoning.Raw), gjson.Result{}, gjson.Result{}, false)
+			emit(index, fmt.Sprintf(`{"reasoning":%s}`, reasoning.Raw), ojson.Result{}, ojson.Result{}, false)
 		}
-		if refusal := message.Get("refusal"); refusal.Exists() && refusal.Type != gjson.Null {
-			emit(index, fmt.Sprintf(`{"refusal":%s}`, refusal.Raw), gjson.Result{}, gjson.Result{}, false)
+		if refusal := message.Get("refusal"); refusal.Exists() && refusal.Type != ojson.Null {
+			emit(index, fmt.Sprintf(`{"refusal":%s}`, refusal.Raw), ojson.Result{}, ojson.Result{}, false)
 		}
 		contentEmitted := false
 		if content := message.Get("content"); content.Exists() && content.String() != "" {
 			delta := fmt.Sprintf(`{"content":%s}`, content.Raw)
-			if annotations := message.Get("annotations"); annotations.Exists() && annotations.Type != gjson.Null {
-				if updated, errSet := sjson.SetRaw(delta, "annotations", annotations.Raw); errSet == nil {
+			if annotations := message.Get("annotations"); annotations.Exists() && annotations.Type != ojson.Null {
+				if updated, errSet := ojson.SetRaw(delta, "annotations", annotations.Raw); errSet == nil {
 					delta = updated
 				}
 			}
-			emit(index, delta, gjson.Result{}, logprobs, false)
+			emit(index, delta, ojson.Result{}, logprobs, false)
 			contentEmitted = true
 		}
-		if audio := message.Get("audio"); audio.Exists() && audio.Type != gjson.Null {
-			emit(index, fmt.Sprintf(`{"audio":%s}`, audio.Raw), gjson.Result{}, gjson.Result{}, false)
+		if audio := message.Get("audio"); audio.Exists() && audio.Type != ojson.Null {
+			emit(index, fmt.Sprintf(`{"audio":%s}`, audio.Raw), ojson.Result{}, ojson.Result{}, false)
 			contentEmitted = true
 		}
-		if !contentEmitted && logprobs.Exists() && logprobs.Type != gjson.Null {
-			emit(index, "", gjson.Result{}, logprobs, false)
+		if !contentEmitted && logprobs.Exists() && logprobs.Type != ojson.Null {
+			emit(index, "", ojson.Result{}, logprobs, false)
 		}
 		if toolCalls := message.Get("tool_calls"); toolCalls.Exists() && toolCalls.IsArray() {
 			if delta := buildToolCallsDelta(toolCalls); delta != "" {
-				emit(index, delta, gjson.Result{}, gjson.Result{}, false)
+				emit(index, delta, ojson.Result{}, ojson.Result{}, false)
 			}
 		}
 
@@ -135,7 +134,7 @@ func SynthesizeOpenAIStreamFrames(body []byte) []string {
 		// the usage block that stream_options.include_usage would have appended.
 		// Keying on the array position instead of the reported index keeps usage
 		// single even when an upstream omits the index field on every choice.
-		emit(index, "", finishReason, gjson.Result{}, position.Int() == 0)
+		emit(index, "", finishReason, ojson.Result{}, position.Int() == 0)
 		return true
 	})
 
@@ -149,7 +148,7 @@ func SynthesizeOpenAIStreamFrames(body []byte) []string {
 // something the synthesizer can replay as streaming deltas. A choice with an
 // empty message is still accepted when the upstream reported a terminal reason,
 // because an empty assistant reply is a legitimate completion.
-func hasUsableAssistantChoice(choice gjson.Result) bool {
+func hasUsableAssistantChoice(choice ojson.Result) bool {
 	message := choice.Get("message")
 	if !message.Exists() || !message.IsObject() {
 		return false
@@ -162,10 +161,10 @@ func hasUsableAssistantChoice(choice gjson.Result) bool {
 			return true
 		}
 	}
-	if audio := message.Get("audio"); audio.Exists() && audio.Type != gjson.Null {
+	if audio := message.Get("audio"); audio.Exists() && audio.Type != ojson.Null {
 		return true
 	}
-	if refusal := message.Get("refusal"); refusal.Exists() && refusal.Type != gjson.Null {
+	if refusal := message.Get("refusal"); refusal.Exists() && refusal.Type != ojson.Null {
 		return true
 	}
 	if toolCalls := message.Get("tool_calls"); toolCalls.Exists() && toolCalls.IsArray() && len(toolCalls.Array()) > 0 {
@@ -177,9 +176,9 @@ func hasUsableAssistantChoice(choice gjson.Result) bool {
 // hasUsableToolCalls reports whether every reported call carries function data
 // the client can act on. Placeholder entries such as tool_calls:[{}] are treated
 // as an unusable reply so the caller can fall back to another credential.
-func hasUsableToolCalls(toolCalls gjson.Result) bool {
+func hasUsableToolCalls(toolCalls ojson.Result) bool {
 	usable := true
-	toolCalls.ForEach(func(_, call gjson.Result) bool {
+	toolCalls.ForEach(func(_, call ojson.Result) bool {
 		if !call.IsObject() || call.Get("function.name").String() == "" {
 			usable = false
 			return false
@@ -187,7 +186,7 @@ func hasUsableToolCalls(toolCalls gjson.Result) bool {
 		// The truncation this option recovers from shows up as empty or partial
 		// arguments, so a call is only usable when it carries valid JSON.
 		arguments := strings.TrimSpace(call.Get("function.arguments").String())
-		if arguments == "" || !gjson.Valid(arguments) {
+		if arguments == "" || !ojson.Valid(arguments) {
 			usable = false
 			return false
 		}
@@ -198,29 +197,29 @@ func hasUsableToolCalls(toolCalls gjson.Result) bool {
 
 // buildToolCallsDelta rewrites a non-streaming tool_calls array into a single
 // streaming delta that carries the complete arguments for every call.
-func buildToolCallsDelta(toolCalls gjson.Result) string {
+func buildToolCallsDelta(toolCalls ojson.Result) string {
 	delta := []byte(`{"tool_calls":[]}`)
 	position := 0
-	toolCalls.ForEach(func(_, call gjson.Result) bool {
+	toolCalls.ForEach(func(_, call ojson.Result) bool {
 		// Start from the upstream call so provider metadata such as Gemini's
 		// extra_content.google.thought_signature survives the rewrite.
 		entry := []byte(call.Raw)
 		if !call.IsObject() {
 			entry = []byte(`{}`)
 		}
-		entry, _ = sjson.SetBytes(entry, "index", position)
+		entry, _ = ojson.SetBytes(entry, "index", position)
 		if id := call.Get("id"); id.Exists() {
-			entry, _ = sjson.SetBytes(entry, "id", id.String())
+			entry, _ = ojson.SetBytes(entry, "id", id.String())
 		}
 		callType := call.Get("type").String()
 		if callType == "" {
 			callType = "function"
 		}
-		entry, _ = sjson.SetBytes(entry, "type", callType)
-		entry, _ = sjson.SetBytes(entry, "function.name", call.Get("function.name").String())
-		entry, _ = sjson.SetBytes(entry, "function.arguments", call.Get("function.arguments").String())
+		entry, _ = ojson.SetBytes(entry, "type", callType)
+		entry, _ = ojson.SetBytes(entry, "function.name", call.Get("function.name").String())
+		entry, _ = ojson.SetBytes(entry, "function.arguments", call.Get("function.arguments").String())
 
-		updated, err := sjson.SetRawBytes(delta, "tool_calls.-1", entry)
+		updated, err := ojson.SetRawBytes(delta, "tool_calls.-1", entry)
 		if err != nil {
 			return true
 		}

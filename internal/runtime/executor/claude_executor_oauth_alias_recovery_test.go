@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestClaudeOAuthUnresolvedNamespaceAlias(t *testing.T) {
@@ -19,7 +19,7 @@ func TestClaudeOAuthUnresolvedNamespaceAlias(t *testing.T) {
 			}
 			request := []byte(`{"tools":[` + tools + `],"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"toolu_old","name":"multi_agent_v1__wait_for_agents","input":{}}]}]}`)
 			upstream, reverseMap := prepareClaudeOAuthToolNamesForUpstream(request, claudeMCPAliasOptions{secret: "namespace-alias-caller"})
-			server := claudeMCPAliasServer(gjson.GetBytes(upstream, "tools.0.name").String())
+			server := claudeMCPAliasServer(ojson.GetBytes(upstream, "tools.0.name").String())
 			name := "mcp__" + server + "__sentence_" + original
 			want := name
 			if declared {
@@ -44,10 +44,10 @@ func TestClaudeOAuthUnresolvedNamespaceAlias(t *testing.T) {
 						t.Fatalf("unresolved tool call changed: %s", restored)
 					}
 					json := bytes.TrimPrefix(restored, []byte("data: "))
-					if got := gjson.GetBytes(json, path+".name").String(); got != want {
+					if got := ojson.GetBytes(json, path+".name").String(); got != want {
 						t.Fatalf("tool name = %q, want %q", got, want)
 					}
-					if got := gjson.GetBytes(json, path+".input.agent_ids.0").String(); got != "agent_1" {
+					if got := ojson.GetBytes(json, path+".input.agent_ids.0").String(); got != "agent_1" {
 						t.Fatalf("tool arguments changed: %s", restored)
 					}
 				})
@@ -92,7 +92,7 @@ func TestClaudeOAuthHybridMCPAliases(t *testing.T) {
 				tools += fmt.Sprintf(`,{"name":%q,"input_schema":{"type":"object"}}`, name)
 			}
 			upstream, reverseMap := prepareClaudeOAuthToolNamesForUpstream([]byte(`{"tools":[`+tools+`]}`), claudeMCPAliasOptions{secret: "hybrid-alias-caller"})
-			server := claudeMCPAliasServer(gjson.GetBytes(upstream, "tools.0.name").String())
+			server := claudeMCPAliasServer(ojson.GetBytes(upstream, "tools.0.name").String())
 			name := "mcp__" + server + "__" + tt.suffix
 			for _, stream := range []bool{false, true} {
 				t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestClaudeOAuthHybridMCPAliases(t *testing.T) {
 					if err != nil {
 						t.Fatalf("restore tool name: %v", err)
 					}
-					if got := gjson.GetBytes(bytes.TrimPrefix(restored, []byte("data: ")), path).String(); got != tt.want {
+					if got := ojson.GetBytes(bytes.TrimPrefix(restored, []byte("data: ")), path).String(); got != tt.want {
 						t.Fatalf("tool name = %q, want %q", got, tt.want)
 					}
 				})

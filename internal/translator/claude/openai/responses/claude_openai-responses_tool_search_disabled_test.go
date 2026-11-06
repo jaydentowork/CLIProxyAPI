@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // The dev golden was produced by running renderToolSearchGolden against the
@@ -95,7 +95,7 @@ func TestToolSearchGoldenFixtureLineEndings(t *testing.T) {
 	if !bytes.Equal(got.Request, want.Request) {
 		t.Fatalf("physical line endings changed request: %q != %q", got.Request, want.Request)
 	}
-	if text := gjson.GetBytes(got.Request, "tools.0.parameters.description").String(); text != "a  b\r\nc\nd" {
+	if text := ojson.GetBytes(got.Request, "tools.0.parameters.description").String(); text != "a  b\r\nc\nd" {
 		t.Fatalf("schema string whitespace changed: %q", text)
 	}
 	for _, changed := range []string{
@@ -180,7 +180,7 @@ func TestToolSearchPinnedContextWinsOverSwitch(t *testing.T) {
 		var types []string
 		for _, chunk := range fixtures.Stream {
 			for _, output := range ConvertClaudeResponseToOpenAIResponses(ctx, "claude-test", session.Request, translated, []byte(chunk), &param) {
-				if item := gjson.GetBytes(sseData(output), "item"); gjson.GetBytes(sseData(output), "type").String() == "response.output_item.done" {
+				if item := ojson.GetBytesNoCopy(sseData(output), "item"); ojson.GetBytesNoCopy(sseData(output), "type").String() == "response.output_item.done" {
 					types = append(types, item.Get("type").String())
 				}
 			}
@@ -189,12 +189,12 @@ func TestToolSearchPinnedContextWinsOverSwitch(t *testing.T) {
 	}
 	nonStreamFirstType := func(ctx context.Context, translated []byte) string {
 		out := ConvertClaudeResponseToOpenAIResponsesNonStream(ctx, "claude-test", session.Request, translated, []byte(strings.Join(fixtures.Stream, "\n")), nil)
-		return gjson.GetBytes(out, "output.0.type").String()
+		return ojson.GetBytesNoCopy(out, "output.0.type").String()
 	}
 
 	setClientToolSearchEnabledForTest(t, false)
 	pinnedOn := WithClientToolSearch(context.Background(), true)
-	if translated := translate(pinnedOn); !gjson.GetBytes(translated, `tools.#(name=="tool_search")`).Exists() {
+	if translated := translate(pinnedOn); !ojson.GetBytesNoCopy(translated, `tools.#(name=="tool_search")`).Exists() {
 		t.Fatalf("pinned-on request lost tool_search with the switch off: %s", translated)
 	}
 	if got := streamItemTypes(pinnedOn, translate(pinnedOn)); !strings.HasPrefix(got, "tool_search_call,") {
@@ -239,7 +239,7 @@ func TestToolSearchCompatContextFollowsPin(t *testing.T) {
 		if errConvert != nil {
 			t.Fatalf("convert: %v", errConvert)
 		}
-		if got := gjson.GetBytes(out, `tools.#(name=="tool_search")`).Exists(); got != tc.pinned {
+		if got := ojson.GetBytesNoCopy(out, `tools.#(name=="tool_search")`).Exists(); got != tc.pinned {
 			t.Fatalf("global=%v pinned=%v: tool_search declared = %v", tc.global, tc.pinned, got)
 		}
 	}

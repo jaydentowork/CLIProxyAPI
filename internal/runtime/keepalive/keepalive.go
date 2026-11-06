@@ -25,9 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // ProbeMetadataKey marks an execution as a keepalive probe.
@@ -923,17 +922,17 @@ func ProbeBody(body []byte, maxTokens int) ([]byte, error) {
 	if maxTokens <= 0 {
 		maxTokens = 1
 	}
-	out, err := sjson.SetBytes(body, "max_tokens", maxTokens)
+	out, err := ojson.SetBytes(body, "max_tokens", maxTokens)
 	if err != nil {
 		return nil, err
 	}
-	out, err = sjson.SetBytes(out, "stream", false)
+	out, err = ojson.SetBytes(out, "stream", false)
 	if err != nil {
 		return nil, err
 	}
 	// Extended thinking forces a minimum max_tokens well above the probe budget,
 	// so the probe drops it. It is not part of the cached prefix.
-	out, err = sjson.DeleteBytes(out, "thinking")
+	out, err = ojson.DeleteBytes(out, "thinking")
 	if err != nil {
 		return nil, err
 	}
@@ -948,7 +947,7 @@ func ProbeBody(body []byte, maxTokens int) ([]byte, error) {
 const contextManagementThinkingPrefix = "clear_thinking"
 
 func removeThinkingDependentContextManagement(body []byte) ([]byte, error) {
-	edits := gjson.GetBytes(body, "context_management.edits")
+	edits := ojson.GetBytes(body, "context_management.edits")
 	if !edits.IsArray() {
 		return body, nil
 	}
@@ -964,9 +963,9 @@ func removeThinkingDependentContextManagement(body []byte) ([]byte, error) {
 	}
 	if len(kept) == 0 {
 		// An empty edits array is not a valid context_management block.
-		return sjson.DeleteBytes(body, "context_management")
+		return ojson.DeleteBytes(body, "context_management")
 	}
-	return sjson.SetBytes(body, "context_management.edits", kept)
+	return ojson.SetBytes(body, "context_management.edits", kept)
 }
 
 // ExtendedCacheTTL returns the longest explicit cache_control TTL in the body,
@@ -980,7 +979,7 @@ func ExtendedCacheTTL(body []byte) time.Duration {
 		return 0
 	}
 	var longest time.Duration
-	walkCacheControl(gjson.ParseBytes(body), func(ttl time.Duration) {
+	walkCacheControl(ojson.ParseBytes(body), func(ttl time.Duration) {
 		if ttl > longest {
 			longest = ttl
 		}
@@ -1001,7 +1000,7 @@ func RequestCacheTTL(body []byte) time.Duration {
 	}
 	var longest time.Duration
 	var marked bool
-	walkCacheControl(gjson.ParseBytes(body), func(ttl time.Duration) {
+	walkCacheControl(ojson.ParseBytes(body), func(ttl time.Duration) {
 		marked = true
 		if ttl > longest {
 			longest = ttl
@@ -1019,10 +1018,10 @@ func RequestCacheTTL(body []byte) time.Duration {
 
 // walkCacheControl visits every cache_control marker in the body, passing the
 // marker's explicit TTL or zero when it carries none.
-func walkCacheControl(value gjson.Result, visit func(time.Duration)) {
+func walkCacheControl(value ojson.Result, visit func(time.Duration)) {
 	switch {
 	case value.IsObject():
-		value.ForEach(func(key, child gjson.Result) bool {
+		value.ForEach(func(key, child ojson.Result) bool {
 			if key.String() == "cache_control" && child.IsObject() {
 				visit(parseCacheTTL(child.Get("ttl").String()))
 				return true
@@ -1031,7 +1030,7 @@ func walkCacheControl(value gjson.Result, visit func(time.Duration)) {
 			return true
 		})
 	case value.IsArray():
-		value.ForEach(func(_, child gjson.Result) bool {
+		value.ForEach(func(_, child ojson.Result) bool {
 			walkCacheControl(child, visit)
 			return true
 		})
