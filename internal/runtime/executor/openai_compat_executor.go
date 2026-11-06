@@ -418,9 +418,9 @@ func (e *OpenAICompatExecutor) executeStreamWithCredentials(ctx context.Context,
 		}
 	}
 
-	if helps.ShouldForceNonStreamToolCalls(e.resolveCompatConfig(auth, req), translated) {
-		translated = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", translated, originalTranslated, requestedModel, requestPath, opts.Headers)
-		return e.executeStreamViaNonStream(ctx, auth, req, opts, reporter, baseURL, apiKey, to, responseFormat, translated, originalPayload)
+	if helps.ShouldForceNonStreamToolCalls(e.resolveCompatConfig(auth, req), doc.Bytes()) {
+		helps.ApplyPayloadConfigWithRequestDoc(e.cfg, baseModel, to.String(), from.String(), "", doc, originalTranslated, requestedModel, requestPath, opts.Headers)
+		return e.executeStreamViaNonStream(ctx, auth, req, opts, reporter, baseURL, apiKey, to, responseFormat, doc.Bytes(), originalPayload)
 	}
 
 	// Request usage data in the final streaming chunk so that token statistics

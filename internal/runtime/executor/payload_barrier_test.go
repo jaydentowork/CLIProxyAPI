@@ -338,6 +338,16 @@ func TestPayloadBarrierEffectiveServiceTierUsageAfterOverride(t *testing.T) {
 			if ojson.GetBytes(body, "stream").Bool() {
 				t.Errorf("upstream body stream = true, want non-stream fallback: %s", body)
 			}
+			// Built-in normalization must reach the fallback body, not just the streaming path.
+			if got := ojson.GetBytes(body, "model").String(); got != "gpt-5.4" {
+				t.Errorf("upstream body model = %q, want suffix-free gpt-5.4: %s", got, body)
+			}
+			if got := ojson.GetBytes(body, "reasoning_effort").String(); got != "high" {
+				t.Errorf("upstream body reasoning_effort = %q, want high from model suffix: %s", got, body)
+			}
+			if got := ojson.GetBytes(body, "max_completion_tokens").Int(); got != 64 || ojson.GetBytes(body, "max_tokens").Exists() {
+				t.Errorf("upstream body max tokens not normalized to max_completion_tokens=64: %s", body)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","model":"gpt-5.4","service_tier":"default","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
 		}))
@@ -351,8 +361,12 @@ func TestPayloadBarrierEffectiveServiceTierUsageAfterOverride(t *testing.T) {
 		usage.RegisterPlugin(plugin)
 
 		compatCfg := &config.Config{
-			Payload:             cfg.Payload,
-			OpenAICompatibility: []config.OpenAICompatibility{{Name: "compat", NonStreamToolCalls: true}},
+			Payload: cfg.Payload,
+			OpenAICompatibility: []config.OpenAICompatibility{{
+				Name:               "compat",
+				NonStreamToolCalls: true,
+				Models:             []config.OpenAICompatibilityModel{{Name: "gpt-5.4", UseMaxCompletionTokens: true}},
+			}},
 		}
 		auth := &cliproxyauth.Auth{
 			ID:         authID,
@@ -362,8 +376,8 @@ func TestPayloadBarrierEffectiveServiceTierUsageAfterOverride(t *testing.T) {
 		executor := NewOpenAICompatExecutor("openai-compatibility", compatCfg)
 		ctx := usage.WithServiceTier(context.Background(), usage.AutoServiceTier)
 		result, errStream := executor.ExecuteStream(ctx, auth, cliproxyexecutor.Request{
-			Model:   "gpt-5.4",
-			Payload: []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object"}}}],"stream":true}`),
+			Model:   "gpt-5.4(high)",
+			Payload: []byte(`{"model":"gpt-5.4(high)","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object"}}}],"max_tokens":64,"stream":true}`),
 		}, cliproxyexecutor.Options{
 			SourceFormat: sdktranslator.FormatOpenAI,
 			Stream:       true,
