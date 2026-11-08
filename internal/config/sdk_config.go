@@ -112,6 +112,9 @@ type SDKConfig struct {
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
+
+	// Routing controls credential selection behavior and model fallback rules.
+	Routing RoutingConfig `yaml:"routing" json:"routing"`
 }
 
 // TLSHandshakeTimeout returns the configured upstream TLS handshake bound

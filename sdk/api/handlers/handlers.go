@@ -447,6 +447,9 @@ type BaseAPIHandler struct {
 	// ModelRouterHost optionally routes matching requests to a plugin executor, the router's own
 	// executor, or a built-in provider before model-to-provider resolution and auth selection.
 	ModelRouterHost PluginModelRouterHost
+
+	// modelFallback holds session pins for routing.model-fallbacks; created lazily under runtimeMu.
+	modelFallback *modelFallbackState
 }
 
 // NewBaseAPIHandlers creates a new API handlers instance.

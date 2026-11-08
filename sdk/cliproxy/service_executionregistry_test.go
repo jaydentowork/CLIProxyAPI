@@ -2705,8 +2705,8 @@ func TestServiceSkipsStaleLocalConfigRuntimeApply(t *testing.T) {
 		applied = append(applied, cfg.Routing.Strategy)
 		return true
 	}
-	first := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{Strategy: "fill-first"}})
-	second := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{Strategy: "round-robin"}})
+	first := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{Strategy: "fill-first"}}})
+	second := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{Strategy: "round-robin"}}})
 	if !service.applyConfigRuntime(context.Background(), second, false) {
 		t.Fatal("newest config runtime apply failed")
 	}
@@ -2728,8 +2728,8 @@ func TestServiceAppliesSameValueNewestSelectorCommit(t *testing.T) {
 	}
 
 	service := &Service{cfg: &config.Config{}, coreManager: manager}
-	older := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{Strategy: "fill-first"}})
-	newer := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{Strategy: "fill-first"}})
+	older := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{Strategy: "fill-first"}}})
+	newer := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{Strategy: "fill-first"}}})
 	if !service.applyConfigRuntime(context.Background(), newer, false) {
 		t.Fatal("newest same-value config runtime apply failed")
 	}
@@ -2751,11 +2751,11 @@ func TestServiceAppliesSameValueNewestSelectorCommit(t *testing.T) {
 func TestBuilderPreservesInitialSelectorForSameRouting(t *testing.T) {
 	cfg := &config.Config{
 		AuthDir: t.TempDir(),
-		Routing: internalconfig.RoutingConfig{
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 			Strategy:           "fill-first",
 			SessionAffinity:    true,
 			SessionAffinityTTL: "1h",
-		},
+		}},
 	}
 	service, errBuild := NewBuilder().
 		WithConfig(cfg).
@@ -2784,11 +2784,11 @@ func TestServiceApplyConfigRuntimePreservesSelectorForUnchangedRouting(t *testin
 	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
 	service := &Service{cfg: &config.Config{}, coreManager: manager}
 
-	initial := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	initial := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:           "fill-first",
 		SessionAffinity:    true,
 		SessionAffinityTTL: "1h",
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), initial, false) {
 		t.Fatal("initial config runtime apply failed")
 	}
@@ -2799,17 +2799,17 @@ func TestServiceApplyConfigRuntimePreservesSelectorForUnchangedRouting(t *testin
 	}
 	defer initialAffinity.Stop()
 
-	older := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	older := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:           " FILLFIRST ",
 		SessionAffinity:    true,
 		SessionAffinityTTL: "60m",
-	}})
+	}}})
 	newer := service.commitConfigUpdate(&config.Config{
-		Routing: internalconfig.RoutingConfig{
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 			Strategy:           "fill-first",
 			SessionAffinity:    true,
 			SessionAffinityTTL: "1h",
-		},
+		}},
 		UsageStatisticsEnabled: true,
 	})
 	if !service.applyConfigRuntime(context.Background(), newer, false) {
@@ -2825,11 +2825,11 @@ func TestServiceApplyConfigRuntimePreservesSelectorForUnchangedRouting(t *testin
 		t.Fatalf("stale same-routing selector = %p, want original %p", got, initialSelector)
 	}
 
-	changed := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	changed := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:           "round-robin",
 		SessionAffinity:    true,
 		SessionAffinityTTL: "1h",
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), changed, false) {
 		t.Fatal("changed-routing config runtime apply failed")
 	}
@@ -2844,11 +2844,11 @@ func TestServiceApplyConfigRuntimePreservesSelectorForUnchangedRouting(t *testin
 	defer changedAffinity.Stop()
 
 	unrelated := service.commitConfigUpdate(&config.Config{
-		Routing: internalconfig.RoutingConfig{
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 			Strategy:           "round-robin",
 			SessionAffinity:    true,
 			SessionAffinityTTL: "1h",
-		},
+		}},
 		UsageStatisticsEnabled: false,
 	})
 	if !service.applyConfigRuntime(context.Background(), unrelated, false) {
@@ -2864,24 +2864,24 @@ func TestServiceApplyConfigRuntimeSessionAffinitySubagentsChangeRecreatesSelecto
 	service := &Service{cfg: &config.Config{}, coreManager: manager}
 
 	subagentsEnabled := true
-	initial := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	initial := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:                 "round-robin",
 		SessionAffinity:          true,
 		SessionAffinityTTL:       "1h",
 		SessionAffinitySubagents: &subagentsEnabled,
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), initial, false) {
 		t.Fatal("initial config runtime apply failed")
 	}
 	initialSelector := manager.Selector()
 
 	subagentsDisabled := false
-	changed := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	changed := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:                 "round-robin",
 		SessionAffinity:          true,
 		SessionAffinityTTL:       "1h",
 		SessionAffinitySubagents: &subagentsDisabled,
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), changed, false) {
 		t.Fatal("changed config runtime apply failed")
 	}
@@ -2896,24 +2896,24 @@ func TestServiceApplyConfigRuntimeSessionAffinityDisabledSubagentsChangeIsNoOp(t
 	service := &Service{cfg: &config.Config{}, coreManager: manager}
 
 	subagentsEnabled := true
-	initial := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	initial := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:                 "round-robin",
 		SessionAffinity:          false,
 		SessionAffinityTTL:       "1h",
 		SessionAffinitySubagents: &subagentsEnabled,
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), initial, false) {
 		t.Fatal("initial config runtime apply failed")
 	}
 	initialSelector := manager.Selector()
 
 	subagentsDisabled := false
-	changed := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	changed := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:                 "round-robin",
 		SessionAffinity:          false,
 		SessionAffinityTTL:       "1h",
 		SessionAffinitySubagents: &subagentsDisabled,
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), changed, false) {
 		t.Fatal("changed config runtime apply failed")
 	}
@@ -2927,23 +2927,23 @@ func TestServiceApplyConfigRuntimeSessionAffinityRebindOnChangeRecreatesSelector
 	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
 	service := &Service{cfg: &config.Config{}, coreManager: manager}
 
-	initial := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	initial := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:                "round-robin",
 		SessionAffinity:         true,
 		SessionAffinityTTL:      "1h",
 		SessionAffinityRebindOn: "any",
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), initial, false) {
 		t.Fatal("initial config runtime apply failed")
 	}
 	initialSelector := manager.Selector()
 
-	same := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	same := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:                "round-robin",
 		SessionAffinity:         true,
 		SessionAffinityTTL:      "1h",
 		SessionAffinityRebindOn: "",
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), same, false) {
 		t.Fatal("same config runtime apply failed")
 	}
@@ -2951,12 +2951,12 @@ func TestServiceApplyConfigRuntimeSessionAffinityRebindOnChangeRecreatesSelector
 		t.Fatal("equivalent default SessionAffinityRebindOn should preserve selector")
 	}
 
-	changed := service.commitConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{
+	changed := service.commitConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 		Strategy:                "round-robin",
 		SessionAffinity:         true,
 		SessionAffinityTTL:      "1h",
 		SessionAffinityRebindOn: "quota",
-	}})
+	}}})
 	if !service.applyConfigRuntime(context.Background(), changed, false) {
 		t.Fatal("changed config runtime apply failed")
 	}
@@ -3006,7 +3006,7 @@ func TestServiceSerializesHomeAndWatcherConfigRuntimeApply(t *testing.T) {
 
 	watcherDone := make(chan struct{})
 	go func() {
-		service.applyWatcherConfigUpdate(&config.Config{Routing: internalconfig.RoutingConfig{Strategy: "round-robin"}})
+		service.applyWatcherConfigUpdate(&config.Config{SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{Strategy: "round-robin"}}})
 		close(watcherDone)
 	}()
 	select {

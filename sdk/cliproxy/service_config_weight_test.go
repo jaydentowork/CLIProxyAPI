@@ -11,7 +11,7 @@ import (
 
 func TestWeightedRoundRobinRoutingSelector(t *testing.T) {
 	state := normalizedRoutingRuntimeState(&internalconfig.Config{
-		Routing: internalconfig.RoutingConfig{Strategy: "wrr"},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{Strategy: "wrr"}},
 	})
 	if state.strategy != "weighted-round-robin" {
 		t.Fatalf("strategy = %q, want weighted-round-robin", state.strategy)
@@ -62,9 +62,9 @@ func TestApplyManagerConfigStopsReplacedServiceAffinitySelector(t *testing.T) {
 	}
 
 	newCfg := &internalconfig.Config{
-		Routing: internalconfig.RoutingConfig{
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{
 			Strategy: "round-robin",
-		},
+		}},
 	}
 	commit := configCommit{cfg: newCfg, sequence: 1}
 	if !service.applyManagerConfig(context.Background(), commit) {

@@ -334,6 +334,41 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 }
 
 func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context, entryProtocol, exitProtocol, modelName string, rawJSON []byte, alt string, allowImageModel bool, execOptions modelExecutionOptions) (<-chan []byte, http.Header, <-chan *interfaces.ErrorMessage) {
+	plan := h.planModelFallback(ctx, entryProtocol, modelName, rawJSON, execOptions)
+	if plan == nil {
+		return h.executeStreamWithAuthManagerFormatsAttempt(ctx, entryProtocol, exitProtocol, modelName, rawJSON, alt, allowImageModel, execOptions, nil)
+	}
+	for index := plan.start; ; index++ {
+		model := plan.candidates[index]
+		attemptCtx, attemptRaw := modelFallbackAttemptInput(ctx, model, modelName, rawJSON)
+		guard := &modelFallbackStreamGuard{rule: plan.rule, terminal: index+1 >= len(plan.candidates), release: func() {}}
+		execCtx := attemptCtx
+		if !guard.terminal {
+			// A non-terminal attempt may be abandoned, so it must not register with or wait on the
+			// HTTP consumer's delivery acknowledgment, which only the terminal attempt reaches.
+			guardCtx, release := context.WithCancel(attemptCtx)
+			guard.release = release
+			execCtx = coreusage.WithoutStreamDelivery(guardCtx)
+		}
+		dataChan, headers, errChan := h.executeStreamWithAuthManagerFormatsAttempt(execCtx, entryProtocol, exitProtocol, model, attemptRaw, alt, allowImageModel, execOptions, guard)
+		if guard.refused && !guard.terminal {
+			plan.advance(index)
+			continue
+		}
+		if !guard.delivering && !guard.detached {
+			guard.release()
+		}
+		if guard.committed && index > 0 {
+			plan.pin(model)
+		}
+		return dataChan, headers, errChan
+	}
+}
+
+// executeStreamWithAuthManagerFormatsAttempt streams one model candidate. A non-nil guard holds
+// the stream preamble until the first substantive chunk; on a refusal or content filter it
+// abandons the attempt, sets guard.refused, and returns no channels.
+func (h *BaseAPIHandler) executeStreamWithAuthManagerFormatsAttempt(ctx context.Context, entryProtocol, exitProtocol, modelName string, rawJSON []byte, alt string, allowImageModel bool, execOptions modelExecutionOptions, guard *modelFallbackStreamGuard) (<-chan []byte, http.Header, <-chan *interfaces.ErrorMessage) {
 	originalRequestedModel := modelName
 	// Speech-only models are reachable solely through the speech entry protocol.
 	execOptions.AllowSpeechModel = isModelExecutionSpeechProtocol(entryProtocol)
@@ -349,6 +384,11 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 		return nil, nil, errChan
 	}
 	if routeDecision.ExecutorPluginID != "" {
+		if guard != nil {
+			// Plugin executor streams are not guarded and own the attempt context until EOF;
+			// their outcome is unknown here, so they are never pinned.
+			guard.detached = true
+		}
 		return h.streamWithPluginExecutor(ctx, entryProtocol, responseProtocol, modelName, originalRequestedModel, rawJSON, alt, routeDecision.ExecutorPluginID, execOptions)
 	}
 	providers, normalizedModel, errMsg := h.providersForExecution(modelName, originalRequestedModel, allowImageModel, routeDecision, execOptions)
@@ -414,6 +454,10 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
 		errMsg := executionErrorMessage(err)
 		lifecycle.completeError(ctx, errMsg)
+		if guard != nil && !guard.terminal && isModelFallbackTriggerError(err, guard.rule) {
+			guard.abandon(nil)
+			return nil, nil, nil
+		}
 		errChan := make(chan *interfaces.ErrorMessage, 1)
 		errChan <- errMsg
 		close(errChan)
@@ -539,6 +583,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 		return payload, true, nil
 	}
 
+	var guardPending []coreexecutor.StreamChunk
 	var bootstrapPayload []byte
 	bootstrapChunkIndex := 0
 	var bootstrapHistoryChunks [][]byte
@@ -546,7 +591,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 	var bootstrapErr *interfaces.ErrorMessage
 	readInitialStreamChunks := func() {
 		for {
-			chunk, ok, canceled := nextStreamChunk(ctx, nil, nil, chunks)
+			chunk, ok, canceled := nextStreamChunk(ctx, &guardPending, nil, chunks)
 			if canceled {
 				streamCanceledBeforeRead = true
 				return
@@ -594,7 +639,56 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 	if h.AuthManager.HomeEnabled() {
 		maxBootstrapRetries = 0
 	}
+	guardRefused := false
+	var guardRefusalErr error
+	// prefetchGuardedStream buffers raw upstream chunks, untransformed so abandoned attempts never
+	// reach stream interceptors, until a substantive chunk, a refusal, or the buffer cap.
+	prefetchGuardedStream := func() {
+		guardPending = nil
+		bufferedBytes := 0
+		for len(guardPending) < modelFallbackMaxBufferedChunks && bufferedBytes < modelFallbackMaxBufferedBytes {
+			chunk, ok, canceled := nextStreamChunk(ctx, nil, nil, chunks)
+			if canceled {
+				streamCanceledBeforeRead = true
+				return
+			}
+			if !ok {
+				return
+			}
+			if chunk.Err != nil {
+				if isModelFallbackTriggerError(chunk.Err, guard.rule) {
+					guard.refused = true
+					if !guard.terminal {
+						guardRefused, guardRefusalErr = true, chunk.Err
+						return
+					}
+				}
+				guardPending = append(guardPending, chunk)
+				return
+			}
+			if isModelFallbackTriggerStreamChunk(chunk.Payload, responseProtocol, guard.rule) {
+				guard.refused = true
+				if !guard.terminal {
+					guardRefused, guardRefusalErr = true, errors.New("model fallback: upstream stream refused or filtered")
+					return
+				}
+				// The terminal attempt delivers its refusal as-is.
+				guardPending = append(guardPending, chunk)
+				return
+			}
+			guardPending = append(guardPending, chunk)
+			bufferedBytes += len(chunk.Payload)
+			if len(chunk.Payload) > 0 && !isModelFallbackPreambleChunk(chunk.Payload) {
+				return
+			}
+		}
+	}
 	for bootstrapRetries := 0; !streamCanceledBeforeRead; {
+		if guard != nil {
+			if prefetchGuardedStream(); guardRefused || streamCanceledBeforeRead {
+				break
+			}
+		}
 		readInitialStreamChunks()
 		if streamCanceledBeforeRead || bootstrapErr != nil || bootstrapStreamErr == nil {
 			break
@@ -636,6 +730,20 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 			chunks = closed
 		}
 	}
+	if guard != nil && !guard.terminal && !guardRefused && bootstrapErr != nil && isModelFallbackTriggerError(bootstrapErr.Error, guard.rule) {
+		guardRefused, guardRefusalErr = true, bootstrapErr.Error
+	}
+	if guardRefused {
+		// Complete directly: streamDeliveryCompletion would wait on the consumer that is
+		// itself waiting for the fallback attempt.
+		status := http.StatusOK
+		if errMsg := executionErrorMessage(guardRefusalErr); errMsg != nil && errMsg.StatusCode > 0 {
+			status = errMsg.StatusCode
+		}
+		lifecycle.complete(pluginapi.RequestCompletionFailed, status, guardRefusalErr)
+		guard.abandon(chunks)
+		return nil, nil, nil
+	}
 
 	upstreamHeaders := downstreamHeadersAfterInterceptors(baseStreamHeaders, rawStreamHeaders, passthroughHeadersEnabled)
 	if upstreamHeaders == nil && (passthroughHeadersEnabled || streamInterceptorsActive) {
@@ -644,7 +752,14 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 	dataChan := make(chan []byte)
 	errChan := make(chan *interfaces.ErrorMessage, 1)
 
+	if guard != nil {
+		guard.delivering = true
+		guard.committed = bootstrapErr == nil && !streamCanceledBeforeRead && !guard.refused
+	}
 	go func() {
+		if guard != nil {
+			defer guard.release()
+		}
 		completionOutcome := pluginapi.RequestCompletionSucceeded
 		completionStatus := http.StatusOK
 		var completionErr error
@@ -716,7 +831,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 			}
 		}
 		for {
-			chunk, ok, canceled := nextStreamChunk(ctx, nil, &streamClosedBeforeRead, chunks)
+			chunk, ok, canceled := nextStreamChunk(ctx, &guardPending, &streamClosedBeforeRead, chunks)
 			if canceled {
 				completionOutcome = pluginapi.RequestCompletionCanceled
 				completionStatus = 0

@@ -45,8 +45,8 @@ func (d *sessionAliasCaptureDispatcher) sessionIDs() []string {
 func TestHomeSessionAliasCacheClearsWhenConfiguredTTLChanges(t *testing.T) {
 	manager := NewManager(nil, nil, nil)
 	manager.SetConfig(&internalconfig.Config{
-		Home:    internalconfig.HomeConfig{Enabled: true},
-		Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"},
+		Home:      internalconfig.HomeConfig{Enabled: true},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"}},
 	})
 	combined := cliproxyexecutor.Options{OriginalRequest: []byte(
 		`{"conversation":{"id":"ttl-conversation"},"prompt_cache_key":"ttl-prompt"}`,
@@ -62,8 +62,8 @@ func TestHomeSessionAliasCacheClearsWhenConfiguredTTLChanges(t *testing.T) {
 	}
 
 	manager.SetConfig(&internalconfig.Config{
-		Home:    internalconfig.HomeConfig{Enabled: true},
-		Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1m"},
+		Home:      internalconfig.HomeConfig{Enabled: true},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1m"}},
 	})
 	if got := manager.homeDispatchSessionID(conversationOnly); got != "conv:ttl-conversation" {
 		t.Fatalf("conversation canonical after TTL change = %q, want cleared alias cache", got)
@@ -334,8 +334,8 @@ func TestHomeSessionAliasCacheEnforcesSoftLimit(t *testing.T) {
 func TestHomeDispatchSessionIDsExtractsParentSessionID(t *testing.T) {
 	manager := NewManager(nil, nil, nil)
 	manager.SetConfig(&internalconfig.Config{
-		Home:    internalconfig.HomeConfig{Enabled: true},
-		Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"},
+		Home:      internalconfig.HomeConfig{Enabled: true},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"}},
 	})
 
 	// 1. Root Claude session
@@ -417,8 +417,8 @@ func TestPickNextViaHomePassesParentSessionIDToHierarchyDispatcher(t *testing.T)
 
 	manager := NewManager(nil, nil, nil)
 	manager.SetConfig(&internalconfig.Config{
-		Home:    internalconfig.HomeConfig{Enabled: true},
-		Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"},
+		Home:      internalconfig.HomeConfig{Enabled: true},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"}},
 	})
 	manager.SetHomeExecutionRegistry(executionregistry.New())
 	manager.RegisterExecutor(schedulerTestExecutor{provider: "hierarchy-provider"})
@@ -458,8 +458,8 @@ func TestPickNextViaHomeNestedRequestSubagentHierarchy(t *testing.T) {
 
 	manager := NewManager(nil, nil, nil)
 	manager.SetConfig(&internalconfig.Config{
-		Home:    internalconfig.HomeConfig{Enabled: true},
-		Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"},
+		Home:      internalconfig.HomeConfig{Enabled: true},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"}},
 	})
 	manager.SetHomeExecutionRegistry(executionregistry.New())
 	manager.RegisterExecutor(schedulerTestExecutor{provider: "hierarchy-provider"})
@@ -497,8 +497,8 @@ func TestPickNextViaHomeNestedRequestSubagentHierarchy(t *testing.T) {
 func TestHomeDispatchSessionIDsExtractsParentFromHeaderPlusBody(t *testing.T) {
 	manager := NewManager(nil, nil, nil)
 	manager.SetConfig(&internalconfig.Config{
-		Home:    internalconfig.HomeConfig{Enabled: true},
-		Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"},
+		Home:      internalconfig.HomeConfig{Enabled: true},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"}},
 	})
 
 	// 1. Header session + Body parent_session_id
@@ -602,8 +602,8 @@ func TestHomeDispatchSessionIDsExtractsParentFromHeaderPlusBody(t *testing.T) {
 func TestHomeDispatchSessionIDsNestedRequestSubagent(t *testing.T) {
 	manager := NewManager(nil, nil, nil)
 	manager.SetConfig(&internalconfig.Config{
-		Home:    internalconfig.HomeConfig{Enabled: true},
-		Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"},
+		Home:      internalconfig.HomeConfig{Enabled: true},
+		SDKConfig: internalconfig.SDKConfig{Routing: internalconfig.RoutingConfig{SessionAffinityTTL: "1h"}},
 	})
 
 	// 1. Nested request with sessionId and agent_id

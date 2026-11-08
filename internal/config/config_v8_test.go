@@ -952,6 +952,28 @@ func TestV8MigrationMovesForkOnlySettings(t *testing.T) {
 	}
 }
 
+func TestV8AcceptsRoutingModelFallbacks(t *testing.T) {
+	raw := []byte("routing:\n  strategy: fill-first\n  model-fallbacks:\n    - from: claude-opus-*\n      to: [claude-sonnet-4-5]\n      fallback: gpt-5\n      on: [refusal, content-filter]\n      sticky-session: false\n      session-ttl: 30m\n")
+	if err := ValidateV8Config(raw); err != nil {
+		t.Fatalf("ValidateV8Config() error = %v", err)
+	}
+	normalized, changed, err := NormalizeConfigLayout(raw, false)
+	if err != nil || changed {
+		t.Fatalf("NormalizeConfigLayout() changed = %v, error = %v", changed, err)
+	}
+	cfg, err := ParseConfigBytes(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Routing.ModelFallbacks) != 1 {
+		t.Fatalf("model-fallbacks = %+v, want one rule", cfg.Routing.ModelFallbacks)
+	}
+	rule := cfg.Routing.ModelFallbacks[0]
+	if rule.From != "claude-opus-*" || len(rule.To) != 1 || rule.To[0] != "claude-sonnet-4-5" || rule.Fallback != "gpt-5" || len(rule.On) != 2 || rule.StickySession == nil || *rule.StickySession || rule.SessionTTL != "30m" {
+		t.Fatalf("model-fallbacks rule = %+v", rule)
+	}
+}
+
 func TestV8HistoricalClaudeForkSettingsMoveToUpstream(t *testing.T) {
 	raw := []byte("config-version: 8\noauth: {providers: {claude: {claude-code: {cache-keepalive: {enabled: true, max-probes: 3}}}}}\n")
 	migrated, _, err := NormalizeConfigLayout(raw, true)

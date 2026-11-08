@@ -45,6 +45,35 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 }
 
 func (h *BaseAPIHandler) executeWithAuthManagerFormats(ctx context.Context, entryProtocol, exitProtocol, modelName string, rawJSON []byte, alt string, allowImageModel bool, execOptions modelExecutionOptions) ([]byte, http.Header, *interfaces.ErrorMessage) {
+	plan := h.planModelFallback(ctx, entryProtocol, modelName, rawJSON, execOptions)
+	if plan == nil {
+		return h.executeWithAuthManagerFormatsAttempt(ctx, entryProtocol, exitProtocol, modelName, rawJSON, alt, allowImageModel, execOptions)
+	}
+	responseProtocol := modelExecutionResponseProtocol(entryProtocol, exitProtocol)
+	for index := plan.start; ; index++ {
+		model := plan.candidates[index]
+		attemptCtx, attemptRaw := modelFallbackAttemptInput(ctx, model, modelName, rawJSON)
+		body, headers, errMsg := h.executeWithAuthManagerFormatsAttempt(attemptCtx, entryProtocol, exitProtocol, model, attemptRaw, alt, allowImageModel, execOptions)
+		triggered := false
+		if errMsg != nil {
+			triggered = isModelFallbackTriggerError(errMsg.Error, plan.rule)
+		} else {
+			triggered = isModelFallbackTriggerPayload(body, responseProtocol, plan.rule)
+		}
+		if triggered && index+1 < len(plan.candidates) {
+			plan.advance(index)
+			continue
+		}
+		if index > 0 && !triggered && errMsg == nil {
+			plan.pin(model)
+		}
+		return body, headers, errMsg
+	}
+}
+
+// executeWithAuthManagerFormatsAttempt executes one model candidate. modelName is the
+// candidate actually tried, so its routing, payload rules, and metadata apply.
+func (h *BaseAPIHandler) executeWithAuthManagerFormatsAttempt(ctx context.Context, entryProtocol, exitProtocol, modelName string, rawJSON []byte, alt string, allowImageModel bool, execOptions modelExecutionOptions) ([]byte, http.Header, *interfaces.ErrorMessage) {
 	originalRequestedModel := modelName
 	// Speech-only models are reachable solely through the speech entry protocol.
 	execOptions.AllowSpeechModel = isModelExecutionSpeechProtocol(entryProtocol)

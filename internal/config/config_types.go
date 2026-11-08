@@ -561,6 +561,26 @@ type RoutingConfig struct {
 	//     auth errors (429, 401/402/403, 404/model support, invalid_grant) rebind as normal.
 	// Ignored when SessionAffinity is false.
 	SessionAffinityRebindOn string `yaml:"session-affinity-rebind-on,omitempty" json:"session-affinity-rebind-on,omitempty"`
+
+	// ModelFallbacks defines ordered model fallback rules triggered on refusal / content_filter.
+	ModelFallbacks []ModelFallbackRule `yaml:"model-fallbacks,omitempty" json:"model-fallbacks,omitempty"`
+}
+
+// ModelFallbackRule routes a refused or content-filtered request to fallback models
+// within the same turn and optionally pins the chat session to the winning fallback.
+type ModelFallbackRule struct {
+	// From is the requested model name or pattern (supports exact match, base model match without thinking suffix, and '*' wildcard, e.g. "claude-opus-5-5" or "claude-opus-*").
+	From string `yaml:"from" json:"from"`
+	// To lists one or more fallback target models in priority order.
+	To []string `yaml:"to,omitempty" json:"to,omitempty"`
+	// Fallback is a single-target convenience alias for To when only one fallback model is needed.
+	Fallback string `yaml:"fallback,omitempty" json:"fallback,omitempty"`
+	// On lists the trigger categories (default when empty: ["content_filter", "refusal"]).
+	On []string `yaml:"on,omitempty" json:"on,omitempty"`
+	// StickySession pins the fallback model for the rest of the chat session when true or nil (default: true).
+	StickySession *bool `yaml:"sticky-session,omitempty" json:"sticky-session,omitempty"`
+	// SessionTTL overrides routing.session-affinity-ttl for this rule (e.g. "1h", "30m"). Defaults to routing.session-affinity-ttl or 1h.
+	SessionTTL string `yaml:"session-ttl,omitempty" json:"session-ttl,omitempty"`
 }
 
 // OAuthModelAlias defines a model ID alias for a specific channel.

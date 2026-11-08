@@ -355,9 +355,9 @@ func TestApplyWatcherConfigUpdate_PreservesExistingWebsocketConnections(t *testi
 				SDKConfig: config.SDKConfig{
 					ProxyURL:               "http://127.0.0.1:1",
 					DisableImageGeneration: internalconfig.DisableImageGenerationAll,
-				},
-				Routing: internalconfig.RoutingConfig{
-					Strategy: "fill-first",
+					Routing: internalconfig.RoutingConfig{
+						Strategy: "fill-first",
+					},
 				},
 			}
 			service.applyWatcherConfigUpdate(reloadedCfg)
