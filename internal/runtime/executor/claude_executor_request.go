@@ -1608,9 +1608,14 @@ func applyClaudeHeadersWithNativeProfile(
 		helps.ApplyClaudeLegacyDeviceHeaders(r, incomingHeaders, cfg, true)
 	} else if stabilizeDeviceProfile {
 		// Both branches use deviceProfile: confirmed clients contribute their own
-		// software profile, unconfirmed clients receive the newest one already
-		// learned for this credential (the configured baseline when none exists).
-		helps.ApplyClaudeDeviceProfileHeaders(r, deviceProfile)
+		// software profile (retaining per-request UA extension fields), while
+		// unconfirmed clients receive the newest one already learned for this
+		// credential (the configured baseline when none exists).
+		if confirmedClaudeCode {
+			helps.ApplyClaudeDeviceProfileHeaders(r, deviceProfile, helps.HeaderValueCaseInsensitive(incomingHeaders, "User-Agent"))
+		} else {
+			helps.ApplyClaudeDeviceProfileHeaders(r, deviceProfile)
+		}
 	} else {
 		helps.ApplyClaudeLegacyDeviceHeaders(r, incomingHeaders, cfg, confirmedClaudeCode, deviceProfile)
 	}

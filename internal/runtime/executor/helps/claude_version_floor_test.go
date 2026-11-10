@@ -205,4 +205,21 @@ func TestObserveClaudeClientVersionRecordsAndReports(t *testing.T) {
 	if report := ClaudeClientVersionReport(cfg); report.Credentials[0].Mismatched {
 		t.Fatalf("credential = %#v, want no mismatch at the configured baseline", report.Credentials[0])
 	}
+
+	// Per-request UA extensions are accepted without leaking into stored reports.
+	ResetClaudeClientVersionRegistry()
+	extended := http.Header{"User-Agent": {"claude-cli/2.1.260 (external, cli, workload/cron)"}}
+	if warn := ObserveClaudeClientVersion(nil, "extended-key", extended, cfg); !warn {
+		t.Fatal("extended UA observation = false, want a warning")
+	}
+	extendedReport := ClaudeClientVersionReport(cfg)
+	if len(extendedReport.Credentials) != 1 || len(extendedReport.Credentials[0].ObservedVersions) != 1 {
+		t.Fatalf("extended report credentials = %#v", extendedReport.Credentials)
+	}
+	if got, want := extendedReport.Credentials[0].ObservedVersions[0].UserAgent, "claude-cli/2.1.260 (external, cli)"; got != want {
+		t.Fatalf("observed user agent = %q, want %q", got, want)
+	}
+	if got, want := extendedReport.Credentials[0].HighestObservedAgent, "claude-cli/2.1.260 (external, cli)"; got != want {
+		t.Fatalf("highest observed user agent = %q, want %q", got, want)
+	}
 }
