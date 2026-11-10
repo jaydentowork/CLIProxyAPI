@@ -701,7 +701,7 @@ func checkSystemInstructionsWithMode(payload []byte, strictMode bool, keepCaller
 
 func checkSystemInstructionsWithModeDoc(doc *ojson.Doc, strictMode bool, keepCallerSystemTopLevel ...bool) bool {
 	keepAtTopLevel := len(keepCallerSystemTopLevel) > 0 && keepCallerSystemTopLevel[0]
-	return checkSystemInstructionsWithSigningModeDoc(doc, strictMode, false, "2.1.280", "cli", "", keepAtTopLevel)
+	return checkSystemInstructionsWithSigningModeDoc(doc, strictMode, false, helps.DefaultClaudeVersion(nil), "cli", "", keepAtTopLevel)
 }
 
 // checkSystemInstructionsWithSigningMode keeps the top-level system in Claude

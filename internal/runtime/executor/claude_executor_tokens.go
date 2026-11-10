@@ -70,6 +70,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	if rebuildMidSystemMessageEnabled(e.cfg, auth) {
 		rebuildMidSystemMessagesToTopLevelDoc(doc)
 	}
+	helps.NormalizeClaudeToolPropertyNamesDoc(doc)
 	sanitizeClaudeMessagesForClaudeUpstreamWithDebugDoc(ctx, doc, baseModel, helps.APIKeyModelIsCompat(req))
 	applyClaudePreservedThinkingBindingDoc(doc)
 	// Built-in cleanup precedes user payload rules so configured values are final.
@@ -234,6 +235,7 @@ func (e *ClaudeExecutor) countTokensUpstream(ctx context.Context, auth *cliproxy
 		mcpAliases := resolveClaudeMCPAliasOptions(ctx, opts.Metadata, req.Metadata)
 		prepareClaudeOAuthToolNamesForUpstreamDoc(doc, mcpAliases)
 	}
+	helps.NormalizeClaudeToolPropertyNamesDoc(doc)
 	sanitizeClaudeMessagesForClaudeUpstreamWithDebugDoc(ctx, doc, baseModel, helps.APIKeyModelIsCompat(req))
 	applyClaudePreservedThinkingBindingDoc(doc)
 	stripPromptCacheOptionsDoc(doc)
