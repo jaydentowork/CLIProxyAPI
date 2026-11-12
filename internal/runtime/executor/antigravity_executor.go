@@ -68,22 +68,16 @@ func NewAntigravityExecutor(cfg *config.Config) *AntigravityExecutor {
 	return &AntigravityExecutor{cfg: cfg}
 }
 
-func (e *AntigravityExecutor) getSensitiveWords() []string {
-	if e != nil && e.cfg != nil && len(e.cfg.Antigravity.SensitiveWords) > 0 {
-		return e.cfg.Antigravity.SensitiveWords
-	}
-	return nil
-}
-
 func (e *AntigravityExecutor) getSensitiveWordMatcher() *helps.SensitiveWordMatcher {
-	if e == nil {
+	if e == nil || e.cfg == nil {
 		return nil
 	}
-	words := e.getSensitiveWords()
-	if len(words) == 0 {
+	rawWords := e.cfg.Antigravity.SensitiveWords
+	rawReplacements := e.cfg.Antigravity.SensitiveWordsReplace
+	if len(rawWords) == 0 && len(rawReplacements) == 0 {
 		return nil
 	}
-	key := strings.Join(words, "\x00")
+	key := helps.SensitiveWordConfigCacheKey(rawWords, rawReplacements)
 	e.matcherMu.RLock()
 	if e.lastWordsKey == key {
 		m := e.cachedMatcher
@@ -98,8 +92,61 @@ func (e *AntigravityExecutor) getSensitiveWordMatcher() *helps.SensitiveWordMatc
 		return e.cachedMatcher
 	}
 	e.lastWordsKey = key
-	e.cachedMatcher = helps.BuildAntigravitySensitiveWordMatcher(words)
+	words, replacements := splitAntigravityInlineReplacements(rawWords, rawReplacements)
+	e.cachedMatcher = helps.BuildAntigravitySensitiveWordMatcher(words, replacements)
 	return e.cachedMatcher
+}
+
+// splitAntigravityInlineReplacements keeps the fork's legacy inline
+// "target => replacement" entries in antigravity.sensitive-words working by
+// moving them into the replacements map. Explicit sensitive-words-replace
+// entries take precedence over inline ones with the same target.
+func splitAntigravityInlineReplacements(words []string, replacements map[string]string) ([]string, map[string]string) {
+	var plain []string
+	var inline map[string]string
+	for _, raw := range words {
+		target, replacement, ok := parseAntigravityInlineReplacement(raw)
+		if !ok {
+			plain = append(plain, raw)
+			continue
+		}
+		if inline == nil {
+			inline = make(map[string]string)
+		}
+		if _, exists := inline[target]; !exists {
+			inline[target] = replacement
+		}
+	}
+	if len(inline) == 0 {
+		return words, replacements
+	}
+	merged := make(map[string]string, len(replacements)+len(inline))
+	for target, replacement := range inline {
+		merged[target] = replacement
+	}
+	for target, replacement := range replacements {
+		merged[target] = replacement
+	}
+	return plain, merged
+}
+
+// parseAntigravityInlineReplacement parses "target => replacement" (or a
+// trailing "target =>" meaning delete). Entries without the spaced arrow are
+// plain obfuscation targets.
+func parseAntigravityInlineReplacement(entry string) (target, replacement string, ok bool) {
+	before, after, hasArrow := strings.Cut(entry, " => ")
+	if !hasArrow {
+		trimmed := strings.TrimSpace(entry)
+		if !strings.HasSuffix(trimmed, " =>") {
+			return "", "", false
+		}
+		before, after = strings.TrimSuffix(trimmed, " =>"), ""
+	}
+	target = strings.TrimSpace(before)
+	if target == "" {
+		return "", "", false
+	}
+	return target, strings.TrimSpace(after), true
 }
 
 func (e *AntigravityExecutor) obfuscateSensitiveWords(payload []byte) []byte {

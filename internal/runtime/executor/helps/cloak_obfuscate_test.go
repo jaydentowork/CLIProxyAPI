@@ -1,6 +1,7 @@
 package helps
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/MoeForge/moego/ojson"
@@ -19,62 +20,93 @@ func TestBuildSensitiveWordMatcherPreservesZeroWidthSpaceDefault(t *testing.T) {
 	}
 }
 
-func TestBuildAntigravitySensitiveWordMatcherObfuscatesSubwordsWithCGJ(t *testing.T) {
+func TestBuildAntigravitySensitiveWordMatcherSubwordsAndPunctuation(t *testing.T) {
 	matcher := BuildAntigravitySensitiveWordMatcher([]string{
-		"proxy",
-		"Claude Code",
-		"Nous Research",
-		"GPT-5",
-		"Agent X",
-	})
-	if matcher == nil {
-		t.Fatal("expected non-nil matcher")
-	}
-
-	input := "Use proxy with Claude Code, Nous Research, GPT-5, and Agent X."
-	got := matcher.ObfuscateText(input)
-	want := "Use p\u034Froxy with C\u034Flaude C\u034Fode, N\u034Fous R\u034Fesearch, G\u034FPT-5, and A\u034Fgent X."
-	if got != want {
-		t.Fatalf("ObfuscateText() = %q, want %q", got, want)
-	}
-}
-
-func TestBuildAntigravitySensitiveWordMatcherLiteralReplacement(t *testing.T) {
-	matcher := BuildAntigravitySensitiveWordMatcher([]string{
-		"Claude",
-		"Claude Code => Claude",
-		"You are Codex, an agent based on GPT-5. => You are a coding assistant.",
 		"Codex",
-	})
+		"GPT-5",
+		"Claude Code",
+		"<system-conventions>",
+		"claude-code",
+		"Agent X",
+	}, nil)
 	if matcher == nil {
 		t.Fatal("expected non-nil matcher")
 	}
 
-	input := "you are codex, an agent based on gpt-5. Prefer CLAUDE CODE or Claude Code over standalone Claude and Codex."
+	input := "You are Codex, an agent based on GPT-5. Follow <system-conventions> in Claude Code / claude-code with Agent X."
 	got := matcher.ObfuscateText(input)
-	want := "You are a coding assistant. Prefer Claude or Claude over standalone C\u034Flaude and C\u034Fodex."
+	want := "You are C\u034Fodex, an agent based on G\u034FPT-5. Follow <s\u034Fystem-c\u034Fonventions> in C\u034Flaude C\u034Fode / c\u034Flaude-c\u034Fode with A\u034Fgent X."
+	if got != want {
+		t.Fatalf("ObfuscateText() = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "\u200B") {
+		t.Fatalf("ObfuscateText() = %q, must not contain U+200B", got)
+	}
+	if secondPass := matcher.ObfuscateText(got); secondPass != got {
+		t.Fatalf("second obfuscation pass = %q, want idempotent %q", secondPass, got)
+	}
+}
+
+func TestSensitiveWordMatcherReplacementsPrecedenceAndEmptyDeletion(t *testing.T) {
+	matcher := BuildAntigravitySensitiveWordMatcher(
+		[]string{"Claude", "Codex", "GPT-5"},
+		map[string]string{
+			"You are Codex, an agent based on GPT-5.": "You are a helpful coding assistant.",
+			"Claude Code": "Claude",
+			"Codex":       "Assistant",
+			"RemoveMe ":   "",
+		},
+	)
+	if matcher == nil {
+		t.Fatal("expected non-nil matcher")
+	}
+
+	input := "you are codex, an agent based on gpt-5. Built for Claude Code, standalone Claude, Codex, and RemoveMe ."
+	got := matcher.ObfuscateText(input)
+	want := "You are a helpful coding assistant. Built for Claude, standalone C\u034Flaude, Assistant, and  ."
 	if got != want {
 		t.Fatalf("ObfuscateText() = %q, want %q", got, want)
 	}
 }
 
-func TestBuildAntigravitySensitiveWordMatcherEmptyReplacementAndArrowParsing(t *testing.T) {
-	matcher := BuildAntigravitySensitiveWordMatcher([]string{
-		"remove me => ",
-		"trim me =>",
-		"x=>y",
-		"Claude Code",
-		"Claude Code => Claude",
+func TestObfuscateSensitiveWordsDocReplacementsOnlyAndBillingHeaderSkip(t *testing.T) {
+	matcher := BuildSensitiveWordMatcherWithReplacements(nil, map[string]string{
+		"anthropic": "provider",
+		"secret":    "",
 	})
 	if matcher == nil {
-		t.Fatal("expected non-nil matcher")
+		t.Fatal("expected non-nil matcher when only replacements are configured")
 	}
 
-	input := "Please remove me and trim me; keep x=>y and Claude Code."
-	got := matcher.ObfuscateText(input)
-	want := "Please  and ; keep x\u034F=>y and Claude."
-	if got != want {
-		t.Fatalf("ObfuscateText() = %q, want %q", got, want)
+	doc := ojson.NewDocString(`{
+		"system": [
+			{"type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.321; cc_entrypoint=cli;"},
+			{"type": "text", "text": "Keep anthropic rules and drop secret"}
+		],
+		"messages": [
+			{"role": "user", "content": "Ask anthropic about secret"}
+		]
+	}`)
+	if !ObfuscateSensitiveWordsDoc(doc, matcher) {
+		t.Fatal("expected ObfuscateSensitiveWordsDoc to modify document")
+	}
+	if gotBilling := doc.Get("system.0.text").String(); gotBilling != "x-anthropic-billing-header: cc_version=2.1.321; cc_entrypoint=cli;" {
+		t.Fatalf("billing header = %q, want untouched", gotBilling)
+	}
+	if gotSys := doc.Get("system.1.text").String(); gotSys != "Keep provider rules and drop " {
+		t.Fatalf("system.1.text = %q, want %q", gotSys, "Keep provider rules and drop ")
+	}
+	if gotMsg := doc.Get("messages.0.content").String(); gotMsg != "Ask provider about " {
+		t.Fatalf("messages.0.content = %q, want %q", gotMsg, "Ask provider about ")
+	}
+}
+
+func TestSensitiveWordConfigCacheKeyCollisionFree(t *testing.T) {
+	k1 := SensitiveWordConfigCacheKey([]string{"a", "b"}, map[string]string{"x": "1=2"})
+	k2 := SensitiveWordConfigCacheKey([]string{"a;1:b"}, map[string]string{"x": "1=2"})
+	k3 := SensitiveWordConfigCacheKey([]string{"a", "b"}, map[string]string{"x=2:1": "2"})
+	if k1 == k2 || k1 == k3 || k2 == k3 {
+		t.Fatalf("expected distinct cache keys, got %q, %q, %q", k1, k2, k3)
 	}
 }
 
@@ -83,8 +115,7 @@ func TestObfuscateSensitiveWordsInSystemInstructionDocIdempotent(t *testing.T) {
 		"Claude Code",
 		"Code",
 		"proxy",
-		"secret token => API credential",
-	})
+	}, map[string]string{"secret token": "API credential"})
 	if matcher == nil {
 		t.Fatal("expected non-nil matcher")
 	}
@@ -125,7 +156,7 @@ func TestObfuscateSensitiveWordsInSystemInstructionDocIdempotent(t *testing.T) {
 // identity phrases that DeepSeek Harness places in systemInstruction (harness persona plus
 // MCP server instructions such as TinyFish, which mention "Claude Code").
 func TestAntigravityMatcherCoversDeepSeekHarnessSystemPrompt(t *testing.T) {
-	matcher := BuildAntigravitySensitiveWordMatcher([]string{"Claude Code", "claude.ai"})
+	matcher := BuildAntigravitySensitiveWordMatcher([]string{"Claude Code", "claude.ai"}, nil)
 	if matcher == nil {
 		t.Fatal("expected non-nil matcher")
 	}
@@ -146,7 +177,7 @@ func TestAntigravityMatcherCoversDeepSeekHarnessSystemPrompt(t *testing.T) {
 	if got, want := doc.Get("request.systemInstruction.parts.0.text").String(), "You are an AI agent powered by DeepSeek Harness.\n\nYou are a coding agent powered by the claude-opus-5-5 model."; got != want {
 		t.Fatalf("persona part = %q, want unchanged %q", got, want)
 	}
-	wantMCP := "### MCP server: tinyfish\nUsers can start TinyFish prompts from the client prompt menu: the + menu in c\u034Flaude.ai, or / in C\u034Flaude C\u034Fode."
+	wantMCP := "### MCP server: tinyfish\nUsers can start TinyFish prompts from the client prompt menu: the + menu in c\u034Flaude.a\u034Fi, or / in C\u034Flaude C\u034Fode."
 	if got := doc.Get("request.systemInstruction.parts.1.text").String(); got != wantMCP {
 		t.Fatalf("mcp part = %q, want %q", got, wantMCP)
 	}

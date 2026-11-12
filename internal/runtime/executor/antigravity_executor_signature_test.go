@@ -294,7 +294,7 @@ func TestAntigravityStreamObfuscatesSensitiveSystemInstruction(t *testing.T) {
 	}
 }
 
-func TestAntigravityStreamSensitiveWordsLiteralReplacementAndHotReload(t *testing.T) {
+func TestAntigravityExecuteObfuscatesCodexIdentityWithCGJ(t *testing.T) {
 	captured := make(chan []byte, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, errRead := io.ReadAll(r.Body)
@@ -303,24 +303,15 @@ func TestAntigravityStreamSensitiveWordsLiteralReplacementAndHotReload(t *testin
 			return
 		}
 		captured <- body
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {}\n\n"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"OK"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":1,"totalTokenCount":11}}}`))
 	}))
 	defer server.Close()
 
-	cfg := &config.Config{
-		Antigravity:  config.AntigravityConfig{SensitiveWords: []string{"Claude Code => Claude", "Codex"}},
+	executor := NewAntigravityExecutor(&config.Config{
+		Antigravity:  config.AntigravityConfig{SensitiveWords: []string{"codex", "GPT-5"}},
 		RequestRetry: 1,
-	}
-	executor := NewAntigravityExecutor(cfg)
-	firstMatcher := executor.getSensitiveWordMatcher()
-	if firstMatcher == nil {
-		t.Fatal("expected non-nil initial matcher")
-	}
-	if secondLookup := executor.getSensitiveWordMatcher(); secondLookup != firstMatcher {
-		t.Fatal("expected cached matcher pointer reuse when SensitiveWords is unchanged")
-	}
-
+	})
 	auth := &cliproxyauth.Auth{
 		Metadata: map[string]any{
 			"access_token": "token-123",
@@ -332,50 +323,142 @@ func TestAntigravityStreamSensitiveWordsLiteralReplacementAndHotReload(t *testin
 	opts := cliproxyexecutor.Options{
 		SourceFormat:   sdktranslator.FormatOpenAIResponse,
 		ResponseFormat: sdktranslator.FormatOpenAIResponse,
-		Stream:         true,
+		Stream:         false,
 	}
 
-	runStream := func(instructions string) string {
-		t.Helper()
-		doc := ojson.NewDocString(`{"model":"gemini-3.6-flash-high","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
-		if errSet := doc.Set("instructions", instructions); errSet != nil {
-			t.Fatalf("set instructions: %v", errSet)
-		}
-		result, errExecute := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
-			Model:   "gemini-3.6-flash-high",
-			Payload: doc.Bytes(),
-		}, opts)
-		if errExecute != nil {
-			t.Fatalf("ExecuteStream() error = %v", errExecute)
-		}
-		for chunk := range result.Chunks {
-			if chunk.Err != nil {
-				t.Fatalf("stream chunk error = %v", chunk.Err)
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{
+			name:    "instructions_field",
+			payload: `{"model":"gemini-4-carbon-high","instructions":"You are Codex, an agent based on GPT-5.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Reply only OK."}]}],"max_output_tokens":128,"stream":false}`,
+		},
+		{
+			name:    "initial_developer_message",
+			payload: `{"model":"gemini-4-carbon-high","input":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"You are Codex, an agent based on GPT-5."}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"Reply only OK."}]}],"max_output_tokens":128,"stream":false}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, errExec := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+				Model:   "gemini-4-carbon-high",
+				Payload: []byte(tc.payload),
+			}, opts)
+			if errExec != nil {
+				t.Fatalf("Execute() error = %v", errExec)
 			}
+			body := <-captured
+			got := ojson.GetBytes(body, "request.systemInstruction.parts.0.text").String()
+			want := "You are C\u034Fodex, an agent based on G\u034FPT-5."
+			if got != want {
+				t.Fatalf("systemInstruction = %q, want %q", got, want)
+			}
+			if strings.Contains(got, "\u200B") {
+				t.Fatalf("systemInstruction = %q, must not use U+200B", got)
+			}
+		})
+	}
+}
+
+func TestAntigravitySensitiveWordsReplaceFromYAML(t *testing.T) {
+	cfg, errParse := config.ParseConfigBytes([]byte(`antigravity:
+  sensitive-words:
+    - "Codex"
+    - "GPT-5"
+  sensitive-words-replace:
+    "You are Codex, an agent based on GPT-5.": "You are a helpful coding assistant."
+`))
+	if errParse != nil {
+		t.Fatalf("ParseConfigBytes() error = %v", errParse)
+	}
+	executor := NewAntigravityExecutor(cfg)
+	payload := []byte(`{"request":{"systemInstruction":{"parts":[{"text":"You are Codex, an agent based on GPT-5. Avoid mentioning Codex."}]},"contents":[{"role":"user","parts":[{"text":"You are Codex, an agent based on GPT-5."}]}]}}`)
+
+	got := executor.obfuscateSensitiveWords(payload)
+	systemText := ojson.GetBytes(got, "request.systemInstruction.parts.0.text").String()
+	wantSystem := "You are a helpful coding assistant. Avoid mentioning C\u034Fodex."
+	if systemText != wantSystem {
+		t.Fatalf("systemInstruction = %q, want %q", systemText, wantSystem)
+	}
+	contentText := ojson.GetBytes(got, "request.contents.0.parts.0.text").String()
+	if contentText != "You are Codex, an agent based on GPT-5." {
+		t.Fatalf("contents = %q, want unchanged", contentText)
+	}
+}
+
+func TestAntigravitySensitiveWordsReplaceOnlyPreservesToolsAndCountTokens(t *testing.T) {
+	captured := make(chan []byte, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, errRead := io.ReadAll(r.Body)
+		if errRead != nil {
+			t.Errorf("read request body: %v", errRead)
+			return
 		}
-		body := <-captured
-		return ojson.GetBytes(body, "request.systemInstruction.parts.0.text").String()
+		captured <- body
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "countTokens") {
+			_, _ = w.Write([]byte(`{"totalTokens":42}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"OK"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":1,"totalTokenCount":11}}}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		Antigravity: config.AntigravityConfig{
+			SensitiveWordsReplace: map[string]string{
+				"You are Codex, an agent based on GPT-5.": "You are a helpful coding assistant.",
+			},
+		},
+		RequestRetry: 1,
+	}
+	executor := NewAntigravityExecutor(cfg)
+	m1 := executor.getSensitiveWordMatcher()
+	m2 := executor.getSensitiveWordMatcher()
+	if m1 == nil || m1 != m2 {
+		t.Fatal("expected cached matcher reuse when replacements are unchanged")
 	}
 
-	got1 := runStream("Prefer Claude Code or Codex.")
-	want1 := "Prefer Claude or C\u034Fodex."
-	if got1 != want1 {
-		t.Fatalf("first stream system instruction = %q, want %q", got1, want1)
+	auth := &cliproxyauth.Auth{
+		Metadata: map[string]any{
+			"access_token": "token-123",
+			"expired":      time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+			"project_id":   "project-1",
+		},
+		Attributes: map[string]string{"base_url": server.URL},
+	}
+	req := cliproxyexecutor.Request{
+		Model:   "gemini-4-carbon-high",
+		Payload: []byte(`{"model":"gemini-4-carbon-high","instructions":"You are Codex, an agent based on GPT-5. Keep extra instructions intact.","tools":[{"type":"function","name":"run_codex_check","description":"Codex diagnostic tool","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}],"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"You are Codex, an agent based on GPT-5."}]}],"max_output_tokens":128,"stream":false}`),
+	}
+	opts := cliproxyexecutor.Options{
+		SourceFormat:   sdktranslator.FormatOpenAIResponse,
+		ResponseFormat: sdktranslator.FormatOpenAIResponse,
 	}
 
-	cfg.Antigravity.SensitiveWords = []string{
-		"You are Codex, an agent based on GPT-5. => You are a coding assistant.",
-		"Claude Code",
+	if _, errExec := executor.Execute(context.Background(), auth, req, opts); errExec != nil {
+		t.Fatalf("Execute() error = %v", errExec)
 	}
-	reloadedMatcher := executor.getSensitiveWordMatcher()
-	if reloadedMatcher == nil || reloadedMatcher == firstMatcher {
-		t.Fatal("expected new matcher instance after SensitiveWords hot update")
+	execBody := <-captured
+	wantInstruction := "You are a helpful coding assistant. Keep extra instructions intact."
+	if got := ojson.GetBytes(execBody, "request.systemInstruction.parts.0.text").String(); got != wantInstruction {
+		t.Fatalf("Execute systemInstruction = %q, want %q", got, wantInstruction)
+	}
+	if gotToolDesc := ojson.GetBytes(execBody, "request.tools.0.functionDeclarations.0.description").String(); gotToolDesc != "Codex diagnostic tool" {
+		t.Fatalf("tool description = %q, want unchanged", gotToolDesc)
+	}
+	if gotUser := ojson.GetBytes(execBody, "request.contents.0.parts.0.text").String(); gotUser != "You are Codex, an agent based on GPT-5." {
+		t.Fatalf("user content = %q, want unchanged", gotUser)
 	}
 
-	got2 := runStream("You are Codex, an agent based on GPT-5. Built for Claude Code.")
-	want2 := "You are a coding assistant. Built for C\u034Flaude C\u034Fode."
-	if got2 != want2 {
-		t.Fatalf("reloaded stream system instruction = %q, want %q", got2, want2)
+	if _, errCount := executor.CountTokens(context.Background(), auth, req, opts); errCount != nil {
+		t.Fatalf("CountTokens() error = %v", errCount)
+	}
+	countBody := <-captured
+	if got := ojson.GetBytes(countBody, "request.systemInstruction.parts.0.text").String(); got != wantInstruction {
+		t.Fatalf("CountTokens systemInstruction = %q, want %q", got, wantInstruction)
 	}
 }
 
@@ -1414,5 +1497,116 @@ func TestAntigravityExecutorCountTokensStripsStatefulFields(t *testing.T) {
 	}
 	if ojson.GetBytes(upstreamBody, "request.sessionId").Exists() {
 		t.Fatalf("upstream countTokens body retained request.sessionId: %s", upstreamBody)
+	}
+}
+
+func TestAntigravityStreamSensitiveWordsLiteralReplacementAndHotReload(t *testing.T) {
+	captured := make(chan []byte, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, errRead := io.ReadAll(r.Body)
+		if errRead != nil {
+			t.Errorf("read request body: %v", errRead)
+			return
+		}
+		captured <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {}\n\n"))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		Antigravity:  config.AntigravityConfig{SensitiveWords: []string{"Claude Code => Claude", "Codex"}},
+		RequestRetry: 1,
+	}
+	executor := NewAntigravityExecutor(cfg)
+	firstMatcher := executor.getSensitiveWordMatcher()
+	if firstMatcher == nil {
+		t.Fatal("expected non-nil initial matcher")
+	}
+	if secondLookup := executor.getSensitiveWordMatcher(); secondLookup != firstMatcher {
+		t.Fatal("expected cached matcher pointer reuse when SensitiveWords is unchanged")
+	}
+
+	auth := &cliproxyauth.Auth{
+		Metadata: map[string]any{
+			"access_token": "token-123",
+			"expired":      time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+			"project_id":   "project-1",
+		},
+		Attributes: map[string]string{"base_url": server.URL},
+	}
+	opts := cliproxyexecutor.Options{
+		SourceFormat:   sdktranslator.FormatOpenAIResponse,
+		ResponseFormat: sdktranslator.FormatOpenAIResponse,
+		Stream:         true,
+	}
+
+	runStream := func(instructions string) string {
+		t.Helper()
+		doc := ojson.NewDocString(`{"model":"gemini-3.6-flash-high","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
+		if errSet := doc.Set("instructions", instructions); errSet != nil {
+			t.Fatalf("set instructions: %v", errSet)
+		}
+		result, errExecute := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+			Model:   "gemini-3.6-flash-high",
+			Payload: doc.Bytes(),
+		}, opts)
+		if errExecute != nil {
+			t.Fatalf("ExecuteStream() error = %v", errExecute)
+		}
+		for chunk := range result.Chunks {
+			if chunk.Err != nil {
+				t.Fatalf("stream chunk error = %v", chunk.Err)
+			}
+		}
+		body := <-captured
+		return ojson.GetBytes(body, "request.systemInstruction.parts.0.text").String()
+	}
+
+	got1 := runStream("Prefer Claude Code or Codex.")
+	want1 := "Prefer Claude or C\u034Fodex."
+	if got1 != want1 {
+		t.Fatalf("first stream system instruction = %q, want %q", got1, want1)
+	}
+
+	cfg.Antigravity.SensitiveWords = []string{
+		"You are Codex, an agent based on GPT-5. => You are a coding assistant.",
+		"Claude Code",
+	}
+	reloadedMatcher := executor.getSensitiveWordMatcher()
+	if reloadedMatcher == nil || reloadedMatcher == firstMatcher {
+		t.Fatal("expected new matcher instance after SensitiveWords hot update")
+	}
+
+	got2 := runStream("You are Codex, an agent based on GPT-5. Built for Claude Code.")
+	want2 := "You are a coding assistant. Built for C\u034Flaude C\u034Fode."
+	if got2 != want2 {
+		t.Fatalf("reloaded stream system instruction = %q, want %q", got2, want2)
+	}
+}
+
+func TestSplitAntigravityInlineReplacementsKeepsLegacyArrowEntries(t *testing.T) {
+	words, replacements := splitAntigravityInlineReplacements(
+		[]string{"Claude Code", "Codex => C0dex", "remove me =>", "x=>y", " => orphan"},
+		map[string]string{"Codex": "Explicit"},
+	)
+	wantWords := []string{"Claude Code", "x=>y", " => orphan"}
+	if strings.Join(words, "|") != strings.Join(wantWords, "|") {
+		t.Fatalf("words = %q, want %q", words, wantWords)
+	}
+	if got := replacements["Codex"]; got != "Explicit" {
+		t.Fatalf("explicit sensitive-words-replace must win, got %q", got)
+	}
+	if got, ok := replacements["remove me"]; !ok || got != "" {
+		t.Fatalf("trailing arrow should map to empty replacement, got %q ok=%v", got, ok)
+	}
+	if len(replacements) != 2 {
+		t.Fatalf("replacements = %v, want 2 entries", replacements)
+	}
+
+	plain := []string{"Claude Code"}
+	gotWords, gotRepl := splitAntigravityInlineReplacements(plain, nil)
+	if len(gotWords) != 1 || gotRepl != nil {
+		t.Fatalf("plain words should pass through unchanged, got %q %v", gotWords, gotRepl)
 	}
 }
